@@ -1,7 +1,7 @@
 mod lexer;
-mod token;
 mod logger;
+mod token;
 
 pub use lexer::Lexer;
-pub use token::{Token, TokenType};
 pub use logger::{init_logger, init_test_logger};
+pub use token::{Token, TokenType};
