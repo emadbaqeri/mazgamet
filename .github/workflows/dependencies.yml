@@ -1,48 +1,77 @@
+# file: dependencies.yml
 name: Update Dependencies
+
+permissions:
+  contents: write # Needed to commit dependency updates
+  pull-requests: write # Needed to create the pull request
 
 on:
   schedule:
-    - cron: '0 0 * * 0' # Run weekly on Sundays
+    - cron: "0 3 * * 0" # Run weekly on Sunday at 3 AM UTC
   workflow_dispatch:
+
+# Prevent multiple dependency update runs simultaneously
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: true
 
 jobs:
   update-deps:
     name: Update Dependencies
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-      - name: Install cargo-outdated and cargo-edit
-        run: cargo install cargo-outdated cargo-edit
+      - name: Install Rust stable toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+
+      - name: Setup Rust cache
+        uses: Swatinem/rust-cache@v2
+
+      # Install cargo-outdated just for the report
+      - name: Install cargo-outdated
+        run: cargo install cargo-outdated --locked
+        shell: bash
 
       - name: Check for outdated dependencies
         id: outdated
         run: |
+          set -euo pipefail
           echo "::group::Checking for outdated dependencies"
-          OUTPUT=$(cargo outdated --workspace --exit-code 0)
+          # Run with --workspace if needed, capture output for PR
+          OUTPUT=$(cargo outdated --workspace --exit-code 0 || echo "cargo-outdated failed")
           echo "$OUTPUT"
           echo "::endgroup::"
-          
-          echo "outdated<<EOF" >> $GITHUB_OUTPUT
+          # Save output for PR body
+          echo "outdated_list<<EOF" >> $GITHUB_OUTPUT
           echo "$OUTPUT" >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
+        shell: bash
 
-      - name: Create pull request
-        uses: peter-evans/create-pull-request@v5
+      - name: Update dependencies using cargo update
+        run: cargo update --locked
+        shell: bash
+
+      - name: Create Pull Request
+        # Use v6 which is the latest major version
+        uses: peter-evans/create-pull-request@v6
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-          commit-message: 'chore: update dependencies'
-          title: 'chore: update dependencies'
+          commit-message: "chore: update dependencies"
+          title: "chore(deps): update Rust dependencies"
           body: |
-            This PR updates outdated dependencies.
-            
-            <details>
-            <summary>Outdated dependencies</summary>
-            
+            Update Rust dependencies based on `cargo update`.
+
+            **Outdated dependencies before update:**
+            ```rust
+            ${{ steps.outdated.outputs.outdated_list }}
             ```
-            ${{ steps.outdated.outputs.outdated }}
-            ```
-            
-            </details>
-          branch: update-dependencies
-          delete-branch: true
+
+            *This PR is automatically generated.*
+          branch: chore/update-dependencies # Use a more descriptive branch name
+          delete-branch: true # Delete branch after merging/closing
+          labels: dependencies, automated pr
+          assignees: ${{ github.actor }} # Assign the user who triggered it (if manual) or maintainers

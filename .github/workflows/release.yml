@@ -1,147 +1,141 @@
+# file: release.yml
 name: Release
+
+permissions:
+  contents: write # Needed for GitHub Release creation/update & potential commit (though commit removed)
+  id-token: write # Needed for potential future trusted publishing to crates.io
 
 on:
   push:
     tags:
-      - "v[0-9]+.[0-9]+.[0-9]+*"
+      - "v[0-9]+.[0-9]+.[0-9]+*" # Trigger on semantic version tags
   workflow_dispatch:
     inputs:
-      version:
-        description: 'Version to release (e.g., 0.1.0)'
+      tag:
+        description: "Git tag to release (e.g., v0.1.0)"
         required: true
         type: string
 
+# Prevent multiple releases for the same tag
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false # Don't cancel releases once started
+
 jobs:
-  create-release:
+  create-gh-release:
     name: Create GitHub Release
     runs-on: ubuntu-latest
+    outputs:
+      release_tag: ${{ steps.vars.outputs.tag }}
+      release_version: ${{ steps.vars.outputs.version }}
     steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
+      - name: Checkout code
+        uses: actions/checkout@v4
+        # No fetch-depth needed unless generating notes from commits here
 
-      - name: Set release version (from tag)
-        if: github.event_name == 'push'
-        run: echo "RELEASE_VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_ENV
-
-      - name: Set release version (from input)
-        if: github.event_name == 'workflow_dispatch'
-        run: echo "RELEASE_VERSION=${{ github.event.inputs.version }}" >> $GITHUB_ENV
-
-      - name: Generate changelog
-        id: changelog
+      - name: Set release version variables
+        id: vars
         run: |
-          # Extract and format changelog from CHANGELOG.md
-          if [ -f CHANGELOG.md ]; then
-            # Check if there's a section for the current version
-            if grep -q "## v$RELEASE_VERSION" CHANGELOG.md; then
-              echo "changelog<<EOF" >> $GITHUB_OUTPUT
-              # Extract the section for the current version
-              sed -n "/## v$RELEASE_VERSION/,/## v/p" CHANGELOG.md | sed '1p;/## v[0-9]/d' >> $GITHUB_OUTPUT
-              echo "EOF" >> $GITHUB_OUTPUT
-              echo "::notice::Found changelog section for v$RELEASE_VERSION"
-            else
-              echo "::warning::No changelog section found for v$RELEASE_VERSION"
-              echo "changelog=Release v$RELEASE_VERSION" >> $GITHUB_OUTPUT
-            fi
+          set -euo pipefail
+          if [[ "${{ github.event_name }}" == "push" ]]; then
+            TAG_NAME="${GITHUB_REF#refs/tags/}"
           else
-            echo "::warning::No CHANGELOG.md file found"
-            echo "changelog=Release v$RELEASE_VERSION" >> $GITHUB_OUTPUT
+            TAG_NAME="${{ github.event.inputs.tag }}"
+            # Optional: Add 'v' prefix if input doesn't have it
+            if [[ ! "$TAG_NAME" =~ ^v ]]; then
+              TAG_NAME="v$TAG_NAME"
+            fi
           fi
-      
+          VERSION="${TAG_NAME#v}"
+          echo "tag=$TAG_NAME" >> $GITHUB_OUTPUT
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "::notice::Preparing release for tag: $TAG_NAME (Version: $VERSION)"
+        shell: bash
+
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v1
+        # Use v2 which is the current major version
+        uses: softprops/action-gh-release@v2
         with:
-          name: Release v${{ env.RELEASE_VERSION }}
-          body: ${{ steps.changelog.outputs.changelog }}
-          draft: false
-          prerelease: false
-          token: ${{ secrets.GITHUB_TOKEN }}
-          tag_name: v${{ env.RELEASE_VERSION }}
+          # Use the determined tag name
+          tag_name: ${{ steps.vars.outputs.tag }}
+          name: Release ${{ steps.vars.outputs.tag }}
+          # Let GitHub generate notes based on PRs merged since last release
+          # Remove 'body' if using this. If you prefer manual notes from
+          # CHANGELOG.md, set generate_release_notes to false and provide 'body'.
           generate_release_notes: true
+          # body: # Optional: Provide body if generate_release_notes: false
+          draft: false
+          prerelease: false # Set to true if releasing pre-releases
+        env:
+          # GITHUB_TOKEN is implicitly used
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   publish-crates:
     name: Publish to crates.io
     runs-on: ubuntu-latest
-    needs: create-release
+    needs: create-gh-release # Run after release is created
+    # Only run if CRATES_IO_TOKEN is set
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-
-      - name: Check version consistency
+      - name: Check if CRATES_IO_TOKEN is set
         run: |
-          if [ "${{ github.event_name }}" = "push" ]; then
-            VERSION=${GITHUB_REF#refs/tags/v}
-          else
-            VERSION=${{ github.event.inputs.version }}
+          if [ -z "${{ secrets.CRATES_IO_TOKEN }}" ]; then
+            echo "::error::CRATES_IO_TOKEN is not set. Skipping publish step."
+            exit 1
           fi
-          
-          echo "::notice::Checking version consistency for v$VERSION"
-          
-          # Check if workspace version matches tag version
-          if grep -q '\[workspace\.package\]' mazgamet/Cargo.toml; then
-            WORKSPACE_VERSION=$(grep -A10 '\[workspace\.package\]' mazgamet/Cargo.toml | grep -oP 'version = "\K[^"]+' | head -1 || echo "NOT_FOUND")
-            if [ "$WORKSPACE_VERSION" = "NOT_FOUND" ]; then
-              echo "::warning::Could not find version in workspace.package section"
-            elif [ "$WORKSPACE_VERSION" != "$VERSION" ]; then
-              echo "::warning::Tag version ($VERSION) doesn't match workspace version ($WORKSPACE_VERSION)"
-              echo "::notice::Updating workspace version to match tag version"
-              sed -i "s/version = \"$WORKSPACE_VERSION\"/version = \"$VERSION\"/" mazgamet/Cargo.toml
-            else
-              echo "::notice::Workspace version matches: $WORKSPACE_VERSION"
-            fi
-          else
-            echo "::warning::No [workspace.package] section found, skipping workspace version check"
-          fi
-          
-          # Check and update all crate versions match
-          for toml in $(find . -name Cargo.toml -not -path "*/target/*"); do
-            if grep -q '\[package\]' "$toml"; then
-              CRATE_VERSION=$(grep -oP 'version = "\K[^"]+' "$toml" | head -1 || echo "NOT_FOUND")
-              if [ "$CRATE_VERSION" = "NOT_FOUND" ]; then
-                echo "::warning::Could not find version in $toml"
-                continue
-              fi
-              if [ "$CRATE_VERSION" != "$VERSION" ]; then
-                echo "::warning::Crate version in $toml ($CRATE_VERSION) doesn't match expected version ($VERSION)"
-                echo "::notice::Updating crate version in $toml to match tag version"
-                sed -i "s/version = \"$CRATE_VERSION\"/version = \"$VERSION\"/" "$toml"
-              else
-                echo "::notice::Crate version matches in $toml: $CRATE_VERSION"
-              fi
-            fi
-          done
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          # Checkout the specific tag being released
+          ref: ${{ needs.create-gh-release.outputs.release_tag }}
 
-      - name: Commit version updates if needed
+      - name: Install Rust stable toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+
+      - name: Setup Rust cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Verify crate versions match tag
         run: |
-          if git diff --quiet; then
-            echo "::notice::No version updates needed"
+          set -euo pipefail
+          EXPECTED_VERSION="${{ needs.create-gh-release.outputs.release_version }}"
+          echo "::notice::Verifying crate versions match tag version: $EXPECTED_VERSION"
+          # Use cargo metadata to reliably get workspace member versions
+          cargo metadata --format-version 1 --no-deps | jq -r --arg VERSION "$EXPECTED_VERSION" '
+            .packages[] |
+            select(.publish != false) | # Only check publishable crates
+            select(.version != $VERSION) |
+            "Error: Crate \(.name) version \(.version) does not match expected release version \($VERSION)"
+          ' > version_errors.txt || true # Ignore jq errors if parsing fails
+
+          if [ -s version_errors.txt ]; then
+            cat version_errors.txt
+            # Exit with error if mismatches found
+            exit 1
           else
-            echo "::notice::Committing version updates"
-            git config --local user.email "github-actions[bot]@users.noreply.github.com"
-            git config --local user.name "github-actions[bot]"
-            git add .
-            git commit -m "chore: align versions for release [skip ci]"
-            git push || echo "::warning::Failed to push version updates"
+            echo "::notice::All publishable crate versions match $EXPECTED_VERSION."
           fi
+        shell: bash
 
-      - name: Dry run publish
-        run: |
-          echo "::group::Validating cargo package"
-          cd mazgamet/lexer && cargo package --allow-dirty
-          echo "::endgroup::"
-
-      - name: Publish crates
+      - name: Publish crates to crates.io
         env:
+          # Use the token from secrets
           CARGO_REGISTRY_TOKEN: ${{ secrets.CRATES_IO_TOKEN }}
         run: |
-          # First publish any crates that are depended on by other crates
-          echo "::group::Publishing lexer crate"
-          cd mazgamet/lexer && cargo publish --allow-dirty || { echo "::error::Failed to publish lexer crate"; exit 1; }
-          echo "::endgroup::"
-          
-          echo "::notice::Waiting for crates.io to index the published crates..."
-          sleep 30
-          
-          echo "::notice::Successfully published all crates!"
+          set -euo pipefail
+          # Use --workspace if all crates should be published
+          # Use --locked to ensure Cargo.lock is up-to-date and used
+          # Remove --allow-dirty - the workspace must be clean for a release
+          # Add explicit --token argument
+          cargo publish --workspace --locked --token "${CARGO_REGISTRY_TOKEN}" || \
+            { echo "::error::Failed to publish crates using --workspace"; exit 1; }
+
+          # If specific order is needed (e.g., publish lib before bin):
+          # cd path/to/lib && cargo publish --locked --token "${CARGO_REGISTRY_TOKEN}" || exit 1
+          # echo "::notice::Waiting a bit for registry index..."
+          # sleep 60 # Use a longer, but still potentially unreliable sleep if needed
+          # cd path/to/bin && cargo publish --locked --token "${CARGO_REGISTRY_TOKEN}" || exit 1
+
+          echo "::notice::Successfully published crates for version ${{ needs.create-gh-release.outputs.release_version }}!"
+        shell: bash

@@ -1,24 +1,41 @@
+# file: audit.yml
 name: Security audit
+
+# Restrict permissions to the minimum required
+permissions:
+  contents: read # Needed to checkout the code
+  security-events: write # Needed by rustsec/audit-check to report findings
 
 on:
   schedule:
-    - cron: '0 0 * * *'
+    - cron: "0 0 * * *" # Daily at midnight
   push:
-    branches: [ main ]
-    paths: 
-      - '**/Cargo.toml'
-      - '**/Cargo.lock'
+    branches: [main]
+    paths:
+      - "**/Cargo.toml"
+      - "**/Cargo.lock"
   pull_request:
-    paths: 
-      - '**/Cargo.toml'
-      - '**/Cargo.lock'
+    paths:
+      - "**/Cargo.toml"
+      - "**/Cargo.lock"
   workflow_dispatch:
+
+# Cancel redundant runs
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   audit:
+    name: RustSec Audit
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: rustsec/audit-check@v1
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run audit check
+        # v1 is the current latest major version
+        uses: rustsec/audit-check@v1
         with:
+          # GITHUB_TOKEN is implicitly used by the action for reporting
           token: ${{ secrets.GITHUB_TOKEN }}

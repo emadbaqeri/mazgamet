@@ -1,115 +1,66 @@
-name: Generate CHANGELOG
+# file: changelog.yml
+name: Generate Changelog Notes
+
+permissions:
+  contents: read # Needed to checkout code and read commit history
 
 on:
-  push:
-    branches:
-      - main
-    paths-ignore:
-      - 'mazgamet/CHANGELOG.md'
-  workflow_dispatch:
+  workflow_dispatch: # Can be run manually if needed
+  # Removed push trigger - let release workflow handle notes
+
+# Cancel redundant runs
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  generate-changelog:
+  generate-changelog-notes:
+    name: Generate Release Notes Content
     runs-on: ubuntu-latest
-    # Skip this workflow if the auto-tag workflow will run it
-    if: '!contains(github.event.head_commit.message, "[skip ci]")'
+    outputs:
+      changelog_content: ${{ steps.changelog_builder.outputs.changelog }}
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout code
+        uses: actions/checkout@v4
         with:
-          fetch-depth: 0
+          fetch-depth: 0 # Required for commit history
 
-      # Check if any tags exist first
+      # Optional: Check if tags exist; action might handle this gracefully
       - name: Check for tags
         id: check_tags
-        continue-on-error: true
         run: |
-          TAG_COUNT=$(git tag | wc -l)
-          echo "tag_count=$TAG_COUNT" >> $GITHUB_OUTPUT
-          if [ "$TAG_COUNT" -gt 0 ]; then
-            LATEST_TAG=$(git describe --tags --abbrev=0)
-            echo "latest_tag=$LATEST_TAG" >> $GITHUB_OUTPUT
-            echo "::notice::Found latest tag: $LATEST_TAG"
+          set -euo pipefail
+          if git describe --tags --abbrev=0 > /dev/null 2>&1; then
+            echo "tags_exist=true" >> $GITHUB_OUTPUT
+            echo "::notice::Tags found."
           else
-            echo "::notice::No tags found in repository"
-          fi
+            echo "tags_exist=false" >> $GITHUB_OUTPUT
+            echo "::warning::No tags found. Changelog generation might be empty or fail."
+        shell: bash
 
-      # Only run changelog builder if tags exist
-      - name: Generate CHANGELOG
-        id: github_release
-        if: steps.check_tags.outputs.tag_count > 0
-        continue-on-error: true
+      - name: Generate Changelog Content using Builder Action
+        id: changelog_builder
+        # Use v4 which is current
         uses: mikepenz/release-changelog-builder-action@v4
+        if: steps.check_tags.outputs.tags_exist == 'true'
         with:
-          configuration: .github/changelog-config.json
+          # Assumes .github/changelog-config.json exists and is configured
+          # If not, remove this line or use default configuration
+          configuration: ".github/changelog-config.json"
           ignorePreReleases: true
-          failOnError: false
+          # Use 'Unreleased' or similar placeholder if needed, or let it compare latest tags
+          # fromTag: # Optional: specify start tag
+          # toTag: # Optional: specify end tag (defaults to latest)
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} # Action uses this implicitly
 
-      - name: Create/Update CHANGELOG.md
+      - name: Display Generated Changelog
+        if: steps.check_tags.outputs.tags_exist == 'true'
         run: |
-          CHANGELOG_PATH="mazgamet/CHANGELOG.md"
-          
-          # Create CHANGELOG.md if it doesn't exist
-          if [ ! -f "$CHANGELOG_PATH" ]; then
-            echo "# Changelog" > "$CHANGELOG_PATH"
-            echo "" >> "$CHANGELOG_PATH"
-            echo "## Unreleased" >> "$CHANGELOG_PATH"
-            echo "" >> "$CHANGELOG_PATH"
-            echo "### Added" >> "$CHANGELOG_PATH"
-            echo "- Initial project setup" >> "$CHANGELOG_PATH"
-            echo "- Lexer crate structure" >> "$CHANGELOG_PATH"
-            echo "" >> "$CHANGELOG_PATH"
-            echo "::notice::Created new CHANGELOG.md file"
-          else
-            echo "::notice::CHANGELOG.md already exists"
-          fi
-          
-          # Only update with tag information if tags exist
-          TAG_COUNT="${{ steps.check_tags.outputs.tag_count }}"
-          if [ "$TAG_COUNT" -gt 0 ]; then
-            LATEST_TAG="${{ steps.check_tags.outputs.latest_tag }}"
-            VERSION=${LATEST_TAG#v}
-            
-            # Check if this version is already in the changelog
-            if ! grep -q "## $LATEST_TAG" "$CHANGELOG_PATH"; then
-              TEMP_FILE="temp_changelog.md"
-              
-              # Create a temporary file with basic structure
-              echo "# Changelog" > "$TEMP_FILE"
-              echo "" >> "$TEMP_FILE"
-              echo "## $LATEST_TAG ($(date +'%Y-%m-%d'))" >> "$TEMP_FILE"
-              echo "" >> "$TEMP_FILE"
-              
-              # Add changelog content
-              if [ -n "${{ steps.github_release.outputs.changelog }}" ]; then
-                echo "${{ steps.github_release.outputs.changelog }}" >> "$TEMP_FILE"
-              else
-                echo "No changes" >> "$TEMP_FILE"
-              fi
-              echo "" >> "$TEMP_FILE"
-              
-              # Append the existing content excluding the header
-              tail -n +3 "$CHANGELOG_PATH" >> "$TEMP_FILE"
-              
-              # Replace the old file
-              mv "$TEMP_FILE" "$CHANGELOG_PATH"
-              
-              echo "::notice::Updated CHANGELOG.md with version $LATEST_TAG"
-            else
-              echo "::notice::Version $LATEST_TAG already in CHANGELOG.md"
-            fi
-          else
-            echo "::notice::No tags found, only ensuring CHANGELOG.md exists"
-          fi
-          
-          # Only commit if there are changes and we're not in a workflow that already commits
-          if git diff --quiet "$CHANGELOG_PATH"; then
-            echo "::notice::No changes to CHANGELOG.md"
-          else
-            git config --local user.email "github-actions[bot]@users.noreply.github.com"
-            git config --local user.name "github-actions[bot]"
-            git add "$CHANGELOG_PATH"
-            git commit -m "docs: update CHANGELOG.md [skip ci]"
-            git push || echo "::warning::Failed to push CHANGELOG updates"
-          fi
+          set -euo pipefail
+          echo "Generated Changelog Content:"
+          echo "${{ steps.changelog_builder.outputs.changelog }}"
+        shell: bash
+
+      # Instead of committing, this job now focuses on generating the content.
+      # The release workflow can trigger this workflow or use the action directly.

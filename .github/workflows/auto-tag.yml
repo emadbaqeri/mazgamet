@@ -1,4 +1,8 @@
+# file: auto-tag.yml
 name: Auto-Tag on Main
+
+permissions:
+  contents: write # Needed to commit version bumps and push tags
 
 on:
   push:
@@ -7,205 +11,178 @@ on:
   workflow_dispatch:
     inputs:
       version_increment:
-        description: 'Version increment type (patch, minor, major)'
-        required: true
-        default: 'patch'
+        description: "Manual version increment type (patch, minor, major)"
+        required: false # Make optional, auto-detect otherwise
         type: choice
         options:
           - patch
           - minor
           - major
 
+# Cancel redundant runs, but allow manual dispatch to run
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.event_name != 'workflow_dispatch' || github.run_id }}
+  cancel-in-progress: ${{ github.event_name != 'workflow_dispatch' }}
+
 jobs:
   auto-tag:
     name: Auto-Tag Latest Commit
     runs-on: ubuntu-latest
-    # Don't run this job if the push was already tagged
+    # Don't run if the push was for a tag
     if: '!startsWith(github.ref, "refs/tags/")'
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout code
+        uses: actions/checkout@v4
         with:
-          fetch-depth: 0
-          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0 # Required for tag history
+          token: ${{ secrets.GITHUB_TOKEN }} # Use provided token for writes
 
       - name: Set Git User
         run: |
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
           git config --local user.name "github-actions[bot]"
 
-      - name: Get current version
-        id: current_version
-        run: |
-          # Try to get version from workspace.package first
-          if grep -q '\[workspace\.package\]' mazgamet/Cargo.toml; then
-            CURRENT_VERSION=$(grep -A10 '\[workspace\.package\]' mazgamet/Cargo.toml | grep -oP 'version = "\K[^"]+' | head -1 || echo "0.1.0")
-          else
-            # Fallback to lexer Cargo.toml
-            CURRENT_VERSION=$(grep -oP 'version = "\K[^"]+' mazgamet/lexer/Cargo.toml | head -1 || echo "0.1.0")
-          fi
-          
-          echo "current_version=$CURRENT_VERSION" >> $GITHUB_OUTPUT
-          echo "::notice::Current version is $CURRENT_VERSION"
-
       - name: Get latest tag
         id: latest_tag
         run: |
-          # Get the latest tag if it exists
-          LATEST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "none")
-          
-          # If no tag exists, use v0.0.0 as the base for comparison
-          if [ "$LATEST_TAG" == "none" ]; then
+          set -euo pipefail
+          # Get the latest semantic version tag, defaulting to v0.0.0 if none exists
+          # This regex tries to find the highest vX.Y.Z tag
+          LATEST_TAG=$(git tag -l 'v[0-9]*.[0-9]*.[0-9]*' --sort=-version:refname | head -n 1)
+          if [ -z "$LATEST_TAG" ]; then
             LATEST_TAG="v0.0.0"
-            echo "::notice::No previous tags found, using $LATEST_TAG as base"
+            echo "::notice::No previous SemVer tags found. Using $LATEST_TAG as base."
           else
-            echo "::notice::Latest tag is $LATEST_TAG"
+             echo "::notice::Latest SemVer tag is $LATEST_TAG"
           fi
-          
           echo "latest_tag=$LATEST_TAG" >> $GITHUB_OUTPUT
+        shell: bash
 
-      - name: Determine new version
+      - name: Determine version increment type
+        id: increment_type
+        run: |
+          set -euo pipefail
+          INCREMENT_TYPE="patch" # Default
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" && "${{ github.event.inputs.version_increment }}" != "" ]]; then
+            INCREMENT_TYPE="${{ github.event.inputs.version_increment }}"
+            echo "::notice::Using manual increment type: $INCREMENT_TYPE"
+          else
+            # Auto-detect based on conventional commits since last tag
+            # Use --format=%B to get the full commit message body for BREAKING CHANGE check
+            COMMITS=$(git log ${{ steps.latest_tag.outputs.latest_tag }}..HEAD --format=%B)
+            if echo "$COMMITS" | grep -qE '^BREAKING CHANGE:|^break:'; then
+              INCREMENT_TYPE="major"
+            elif echo "$COMMITS" | grep -qE '^feat:'; then
+              INCREMENT_TYPE="minor"
+            fi
+            echo "::notice::Detected increment type from commits: $INCREMENT_TYPE"
+          fi
+          echo "increment=$INCREMENT_TYPE" >> $GITHUB_OUTPUT
+        shell: bash
+
+      # --- RUST-BASED SEMVER CALCULATION ---
+      - name: Install Rust stable toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+
+      - name: Install Rust semver-tool
+        run: |
+          set -euo pipefail
+          if ! command -v semver-tool >/dev/null 2>&1; then
+            cargo install semver-tool --locked
+          else
+            echo "semver-tool already installed"
+          fi
+        shell: bash
+
+      - name: Calculate new version using semver-tool
         id: new_version
         run: |
-          CURRENT_VERSION="${{ steps.current_version.outputs.current_version }}"
-          LATEST_TAG="${{ steps.latest_tag.outputs.latest_tag }}"
-          
-          # Remove 'v' prefix if exists
-          LATEST_VERSION="${LATEST_TAG#v}"
-          
-          # Parse version components
-          IFS='.' read -r -a VERSION_PARTS <<< "$CURRENT_VERSION"
-          MAJOR=${VERSION_PARTS[0]:-0}
-          MINOR=${VERSION_PARTS[1]:-0}
-          PATCH=${VERSION_PARTS[2]:-0}
-          
-          # Determine version increment type
-          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
-            INCREMENT_TYPE="${{ github.event.inputs.version_increment }}"
-          else
-            # Auto-detect if commits contain breaking changes or features
-            LAST_COMMIT_MSG=$(git log -1 --pretty=%B)
-            if [[ "$LAST_COMMIT_MSG" == *"BREAKING CHANGE"* ]] || [[ "$LAST_COMMIT_MSG" == "break:"* ]]; then
-              INCREMENT_TYPE="major"
-            elif [[ "$LAST_COMMIT_MSG" == "feat:"* ]]; then
-              INCREMENT_TYPE="minor"
-            else
-              INCREMENT_TYPE="patch"
-            fi
+          set -euo pipefail
+          LATEST_TAG_VERSION="${{ steps.latest_tag.outputs.latest_tag }}"
+          # Remove 'v' prefix
+          LATEST_VERSION_NUM=${LATEST_TAG_VERSION#v}
+          INCREMENT="${{ steps.increment_type.outputs.increment }}"
+
+          # Validate base version and bump using the Rust tool
+          # semver-tool automatically handles invalid formats gracefully in bump typically
+          NEW_VERSION=$(semver-tool bump "$INCREMENT" "$LATEST_VERSION_NUM")
+          if [ -z "$NEW_VERSION" ]; then
+            echo "::error::semver-tool failed to bump version '$LATEST_VERSION_NUM' with increment '$INCREMENT'"
+            exit 1
           fi
-          
-          # Increment version based on type
-          case "$INCREMENT_TYPE" in
-            major)
-              NEW_VERSION="$((MAJOR + 1)).0.0"
-              echo "::notice::Major version bump detected"
-              ;;
-            minor)
-              NEW_VERSION="$MAJOR.$((MINOR + 1)).0"
-              echo "::notice::Minor version bump detected"
-              ;;
-            patch|*)
-              NEW_VERSION="$MAJOR.$MINOR.$((PATCH + 1))"
-              echo "::notice::Patch version bump detected"
-              ;;
-          esac
-          
-          # Check if new version is greater than the current Cargo.toml version
-          # Compare lexicographically which works for semver
-          # If new version is greater than or equal to current version, use the new version
-          # Otherwise, use the current version + patch
-          if [ "$(printf '%s\n' "$LATEST_VERSION" "$CURRENT_VERSION" | sort -V | head -n1)" = "$LATEST_VERSION" ] && \
-             [ "$LATEST_VERSION" != "$CURRENT_VERSION" ]; then
-            # Latest tag version is less than the current Cargo.toml version, so use current + patch
-            if [ "$INCREMENT_TYPE" == "patch" ]; then
-              echo "::notice::Using current version + patch: $NEW_VERSION"
-            else 
-              echo "::notice::Using calculated new version: $NEW_VERSION"
-            fi
-          else
-            # Latest tag version is already at or greater than Cargo.toml, just increment the tag
-            IFS='.' read -r -a TAG_PARTS <<< "$LATEST_VERSION"
-            TAG_MAJOR=${TAG_PARTS[0]:-0}
-            TAG_MINOR=${TAG_PARTS[1]:-0}
-            TAG_PATCH=${TAG_PARTS[2]:-0}
-            
-            case "$INCREMENT_TYPE" in
-              major)
-                NEW_VERSION="$((TAG_MAJOR + 1)).0.0"
-                ;;
-              minor)
-                NEW_VERSION="$TAG_MAJOR.$((TAG_MINOR + 1)).0"
-                ;;
-              patch|*)
-                NEW_VERSION="$TAG_MAJOR.$TAG_MINOR.$((TAG_PATCH + 1))"
-                ;;
-            esac
-            echo "::notice::Incrementing from latest tag to: $NEW_VERSION"
-          fi
-          
+
           echo "new_version=$NEW_VERSION" >> $GITHUB_OUTPUT
           echo "new_tag=v$NEW_VERSION" >> $GITHUB_OUTPUT
+          echo "::notice::Calculated new version: $NEW_VERSION (Tag: v$NEW_VERSION)"
+        shell: bash
+      # --- END RUST-BASED SEMVER ---
+      - name: Check if tag already exists
+        id: check_tag_exists
+        run: |
+          set -euo pipefail
+          NEW_TAG="${{ steps.new_version.outputs.new_tag }}"
+          if git rev-parse "$NEW_TAG" >/dev/null 2>&1; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+            echo "::warning::Tag $NEW_TAG already exists. Skipping version bump and tag creation."
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+          fi
+        shell: bash
 
       - name: Update version in Cargo.toml files
+        if: steps.check_tag_exists.outputs.exists == 'false'
         run: |
+          set -euo pipefail
           NEW_VERSION="${{ steps.new_version.outputs.new_version }}"
-          
-          # Update workspace Cargo.toml
-          if grep -q '\[workspace\.package\]' mazgamet/Cargo.toml; then
-            sed -i "s/version = \"[^\"]*\"/version = \"$NEW_VERSION\"/" $(grep -l '\[workspace\.package\]' mazgamet/Cargo.toml)
-            echo "::notice::Updated workspace package version to $NEW_VERSION"
+          if ! command -v cargo-set-version >/dev/null 2>&1; then
+            cargo install cargo-edit --locked
           fi
-          
-          # Update all package Cargo.toml files
-          for toml in $(find mazgamet -name Cargo.toml); do
-            if grep -q '\[package\]' "$toml"; then
-              sed -i "s/version = \"[^\"]*\"/version = \"$NEW_VERSION\"/" "$toml"
-              echo "::notice::Updated version in $toml to $NEW_VERSION"
-            fi
-          done
-
-      - name: Update CHANGELOG.md
-        run: |
-          NEW_VERSION="${{ steps.new_version.outputs.new_version }}"
-          NEW_TAG="${{ steps.new_version.outputs.new_tag }}"
-          TODAY=$(date +'%Y-%m-%d')
-          CHANGELOG_PATH="mazgamet/CHANGELOG.md"
-          
-          # Create CHANGELOG.md if it doesn't exist
-          if [ ! -f "$CHANGELOG_PATH" ]; then
-            echo "# Changelog" > "$CHANGELOG_PATH"
-            echo "" >> "$CHANGELOG_PATH"
-          fi
-          
-          # Check if Unreleased section exists
-          if grep -q "## Unreleased" "$CHANGELOG_PATH"; then
-            # Convert Unreleased section to version section
-            sed -i "s/## Unreleased/## $NEW_TAG ($TODAY)/" "$CHANGELOG_PATH"
-            # Add a new Unreleased section at the top
-            sed -i "s/# Changelog/# Changelog\n\n## Unreleased\n/" "$CHANGELOG_PATH"
+          # Use cargo-edit (if available) or sed to update versions
+          # Installing cargo-edit specifically for this:
+          echo "Attempting to set version using cargo set-version..."
+          if cargo set-version --workspace "$NEW_VERSION"; then
+             echo "::notice::Successfully set version for workspace members using 'cargo set-version --workspace'."
           else
-            # Add new version section right after the header
-            sed -i "s/# Changelog/# Changelog\n\n## $NEW_TAG ($TODAY)\n\n### Added\n- Auto-generated release/" "$CHANGELOG_PATH"
-            # Add Unreleased section at the top
-            sed -i "s/# Changelog/# Changelog\n\n## Unreleased\n/" "$CHANGELOG_PATH"
+             echo "::warning::'cargo set-version --workspace' failed or no workspace members found inheriting version. Falling back to manual sed."
+             # Fallback/alternative: Manual find and sed (handle workspace.package too)
+             find . -path ./target -prune -o -name Cargo.toml -print | while read -r toml; do
+               if grep -q '^version\s*=\s*\"[^\"]*\"' "$toml" && ! grep -q '\[workspace\]' "$toml"; then # Avoid top-level workspace file here
+                 sed -i -E "s/^version\s*=\s*\"[^\"]*\"/version = \"$NEW_VERSION\"/" "$toml"
+                 echo "::notice::Updated version in $toml to $NEW_VERSION (using sed)"
+               fi
+               # Handle workspace.package definition
+               if grep -q '\[workspace\.package\]' "$toml" && grep -A5 '\[workspace\.package\]' "$toml" | grep -q '^version\s*='; then
+                 sed -i "/\[workspace\.package\]/,/version\s*=/ s/^version\s*=\s*\"[^\"]*\"/version = \"$NEW_VERSION\"/" "$toml"
+                 echo "::notice::Updated workspace package version in $toml to $NEW_VERSION (using sed)"
+               fi
+             done
           fi
-          
-          echo "::notice::Updated CHANGELOG.md with new version $NEW_TAG"
+        shell: bash
 
-      - name: Commit and push version updates
+      - name: Commit version updates
+        if: steps.check_tag_exists.outputs.exists == 'false'
         run: |
+          set -euo pipefail
           NEW_VERSION="${{ steps.new_version.outputs.new_version }}"
-          
-          git add mazgamet/Cargo.toml mazgamet/*/Cargo.toml mazgamet/CHANGELOG.md
-          git commit -m "chore: bump version to $NEW_VERSION [skip ci]"
-          git push
-          
-          echo "::notice::Committed and pushed version updates"
+          # Check if Git status reports changes
+          if git diff --quiet && git diff --staged --quiet; then
+            echo "::notice::No version changes to commit."
+          else
+            git add . # Add all changes (like updated Cargo.toml files)
+            git commit -m "chore: bump version to $NEW_VERSION [skip ci]"
+            git push
+            echo "::notice::Committed and pushed version updates"
+          fi
+        shell: bash
 
       - name: Create and push tag
+        if: steps.check_tag_exists.outputs.exists == 'false'
         run: |
+          set -euo pipefail
           NEW_TAG="${{ steps.new_version.outputs.new_tag }}"
-          
-          git tag "$NEW_TAG"
+          git tag "$NEW_TAG" -m "Release $NEW_TAG"
           git push origin "$NEW_TAG"
-          
           echo "::notice::Created and pushed tag $NEW_TAG"
+        shell: bash
