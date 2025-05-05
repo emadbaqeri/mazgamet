@@ -110,8 +110,18 @@ jobs:
           LATEST_VERSION_NUM=${LATEST_TAG_VERSION#v}
           INCREMENT="${{ steps.increment_type.outputs.increment }}"
 
-          # Validate base version and bump using the Rust tool
-          # semver-tool automatically handles invalid formats gracefully in bump typically
+          # Ensure LATEST_VERSION_NUM is a valid semantic version
+          if ! echo "$LATEST_VERSION_NUM" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::error::Invalid semantic version format for base version: '$LATEST_VERSION_NUM'"
+            exit 1
+          fi
+
+          # Ensure INCREMENT is one of the valid options
+          if ! echo "$INCREMENT" | grep -qE '^(patch|minor|major)$'; then
+            echo "::error::Invalid increment type: '$INCREMENT'. Must be 'patch', 'minor', or 'major'."
+            exit 1
+          fi
+
           NEW_VERSION=$(semver-tool bump "$INCREMENT" "$LATEST_VERSION_NUM")
           if [ -z "$NEW_VERSION" ]; then
             echo "::error::semver-tool failed to bump version '$LATEST_VERSION_NUM' with increment '$INCREMENT'"
