@@ -24,26 +24,15 @@ jobs:
       fail-fast: false # Allow all matrix jobs to finish
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
-        # Keep specific versions for stability, ensure 1.76 is still relevant or update
-        rust: [stable, beta, nightly, "1.76"]
-        exclude:
-          # Keep exclusions if they significantly speed up CI and are acceptable
-          - os: windows-latest
-            rust: beta
-          - os: windows-latest
-            rust: nightly
-          - os: macos-latest
-            rust: beta
-          - os: macos-latest
-            rust: nightly
+        rust: ["1.86.0"]
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Install Rust toolchain (${{ matrix.rust }})
-        uses: dtolnay/rust-toolchain@stable # Use stable tag
+      - name: Install Rust toolchain (1.86.0)
+        uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: ${{ matrix.rust }}
+          toolchain: "1.86.0"
 
       - name: Setup Rust cache
         uses: Swatinem/rust-cache@v2
@@ -58,16 +47,16 @@ jobs:
     strategy:
       matrix:
         os: [ubuntu-latest, macos-latest]
-        rust: [stable, nightly]
+        rust: ["1.86.0"]
       fail-fast: false
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Install Rust toolchain (stable)
-        uses: dtolnay/rust-toolchain@stable # Use stable tag
+      - name: Install Rust toolchain (1.86.0)
+        uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: stable
+          toolchain: "1.86.0"
           components: rustfmt, clippy
 
       - name: Setup Rust cache
@@ -88,16 +77,16 @@ jobs:
     strategy:
       matrix:
         os: [ubuntu-latest, macos-latest]
-        rust: [stable, nightly]
+        rust: ["1.86.0"]
       fail-fast: false
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Install Rust toolchain (stable)
-        uses: dtolnay/rust-toolchain@stable # Use stable tag
+      - name: Install Rust toolchain (1.86.0)
+        uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: stable
+          toolchain: "1.86.0"
 
       - name: Setup Rust cache
         uses: Swatinem/rust-cache@v2
