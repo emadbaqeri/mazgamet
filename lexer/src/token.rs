@@ -4,7 +4,7 @@ pub enum TokenType {
     EOF,
 
     Integer,
-    Indetifier,
+    Identifier,
 
     Assign,
     Plus,
@@ -26,7 +26,7 @@ impl TokenType {
         match ident {
             "fn" => TokenType::Function,
             "let" => TokenType::Let,
-            _ => TokenType::Indetifier,
+            _ => TokenType::Identifier,
         }
     }
 }

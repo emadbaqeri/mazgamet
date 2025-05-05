@@ -146,11 +146,11 @@ impl<'a> Lexer<'a> {
     }
 
     pub fn is_letter(ch: u8) -> bool {
-        (b'a' <= ch && ch <= b'z') || (b'A' <= ch && ch <= b'Z') || ch == b'_'
+        ch.is_ascii_lowercase() || ch.is_ascii_uppercase() || ch == b'_'
     }
 
     fn is_digit(ch: u8) -> bool {
-        b'0' <= ch && ch <= b'9'
+        ch.is_ascii_digit()
     }
 
     pub fn skip_whitespace(&mut self) {
@@ -214,39 +214,39 @@ let result = add(five, ten);
 
         let tests = vec![
             (TokenType::Let, "let"),
-            (TokenType::Indetifier, "five"),
+            (TokenType::Identifier, "five"),
             (TokenType::Assign, "="),
             (TokenType::Integer, "5"),
             (TokenType::Semicolon, ";"),
             (TokenType::Let, "let"),
-            (TokenType::Indetifier, "ten"),
+            (TokenType::Identifier, "ten"),
             (TokenType::Assign, "="),
             (TokenType::Integer, "10"),
             (TokenType::Semicolon, ";"),
             (TokenType::Let, "let"),
-            (TokenType::Indetifier, "add"),
+            (TokenType::Identifier, "add"),
             (TokenType::Assign, "="),
             (TokenType::Function, "fn"),
             (TokenType::LeftParen, "("),
-            (TokenType::Indetifier, "x"),
+            (TokenType::Identifier, "x"),
             (TokenType::Comma, ","),
-            (TokenType::Indetifier, "y"),
+            (TokenType::Identifier, "y"),
             (TokenType::RightParen, ")"),
             (TokenType::LeftBrace, "{"),
-            (TokenType::Indetifier, "x"),
+            (TokenType::Identifier, "x"),
             (TokenType::Plus, "+"),
-            (TokenType::Indetifier, "y"),
+            (TokenType::Identifier, "y"),
             (TokenType::Semicolon, ";"),
             (TokenType::RightBrace, "}"),
             (TokenType::Semicolon, ";"),
             (TokenType::Let, "let"),
-            (TokenType::Indetifier, "result"),
+            (TokenType::Identifier, "result"),
             (TokenType::Assign, "="),
-            (TokenType::Indetifier, "add"),
+            (TokenType::Identifier, "add"),
             (TokenType::LeftParen, "("),
-            (TokenType::Indetifier, "five"),
+            (TokenType::Identifier, "five"),
             (TokenType::Comma, ","),
-            (TokenType::Indetifier, "ten"),
+            (TokenType::Identifier, "ten"),
             (TokenType::RightParen, ")"),
             (TokenType::Semicolon, ";"),
             (TokenType::EOF, ""),
