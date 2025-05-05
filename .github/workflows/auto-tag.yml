@@ -95,6 +95,7 @@ jobs:
         run: |
           set -euo pipefail
           if ! command -v semver-tool >/dev/null 2>&1; then
+            echo "Installing semver-tool..."
             cargo install semver-tool --locked
           else
             echo "semver-tool already installed"
@@ -121,10 +122,48 @@ jobs:
             echo "::error::Invalid increment type: '$INCREMENT'. Must be 'patch', 'minor', or 'major'."
             exit 1
           fi
-
-          NEW_VERSION=$(semver-tool bump "$INCREMENT" "$LATEST_VERSION_NUM")
+          
+          # Check semver-tool command structure and adapt accordingly
+          if semver-tool --help | grep -q "USAGE:.*semver-tool \[SUBCOMMAND\]"; then
+            # New style semver-tool
+            if semver-tool help | grep -q "bump"; then
+              NEW_VERSION=$(semver-tool bump "$INCREMENT" "$LATEST_VERSION_NUM")
+            else
+              # Try to determine the right subcommand
+              PROPER_CMD=$(semver-tool help | grep -E "increment|bump|inc" | head -1 | awk '{print $1}')
+              if [ -n "$PROPER_CMD" ]; then
+                NEW_VERSION=$(semver-tool "$PROPER_CMD" "$INCREMENT" "$LATEST_VERSION_NUM")
+              else
+                echo "::error::Could not determine the proper semver-tool command to bump version"
+                exit 1
+              fi
+            fi
+          else
+            # Try traditional semver format as fallback
+            if command -v semver >/dev/null 2>&1; then
+              NEW_VERSION=$(semver bump "$INCREMENT" "$LATEST_VERSION_NUM")
+            else
+              # Last resort - calculate version manually
+              echo "::warning::semver-tool command structure not recognized, calculating version manually"
+              case "$INCREMENT" in
+                patch)
+                  IFS='.' read -r major minor patch <<< "$LATEST_VERSION_NUM"
+                  NEW_VERSION="$major.$minor.$((patch + 1))"
+                  ;;
+                minor)
+                  IFS='.' read -r major minor patch <<< "$LATEST_VERSION_NUM"
+                  NEW_VERSION="$major.$((minor + 1)).0"
+                  ;;
+                major)
+                  IFS='.' read -r major minor patch <<< "$LATEST_VERSION_NUM"
+                  NEW_VERSION="$((major + 1)).0.0"
+                  ;;
+              esac
+            fi
+          fi
+          
           if [ -z "$NEW_VERSION" ]; then
-            echo "::error::semver-tool failed to bump version '$LATEST_VERSION_NUM' with increment '$INCREMENT'"
+            echo "::error::Failed to bump version '$LATEST_VERSION_NUM' with increment '$INCREMENT'"
             exit 1
           fi
 
@@ -151,28 +190,48 @@ jobs:
         run: |
           set -euo pipefail
           NEW_VERSION="${{ steps.new_version.outputs.new_version }}"
+          
+          # Install cargo-edit if not available
           if ! command -v cargo-set-version >/dev/null 2>&1; then
-            cargo install cargo-edit --locked
-          fi
-          # Use cargo-edit (if available) or sed to update versions
-          # Installing cargo-edit specifically for this:
-          echo "Attempting to set version using cargo set-version..."
-          if cargo set-version --workspace "$NEW_VERSION"; then
-             echo "::notice::Successfully set version for workspace members using 'cargo set-version --workspace'."
+            echo "Installing cargo-edit..."
+            rustup default stable # Ensure we're on stable for cargo-edit
+            cargo install cargo-edit --locked --version "^0.12.0" || {
+              echo "::warning::Failed to install cargo-edit, will use sed fallback"
+              CARGO_EDIT_INSTALLED=false
+            }
+            CARGO_EDIT_INSTALLED=${CARGO_EDIT_INSTALLED:-true}
           else
-             echo "::warning::'cargo set-version --workspace' failed or no workspace members found inheriting version. Falling back to manual sed."
-             # Fallback/alternative: Manual find and sed (handle workspace.package too)
-             find . -path ./target -prune -o -name Cargo.toml -print | while read -r toml; do
-               if grep -q '^version\s*=\s*\"[^\"]*\"' "$toml" && ! grep -q '\[workspace\]' "$toml"; then # Avoid top-level workspace file here
-                 sed -i -E "s/^version\s*=\s*\"[^\"]*\"/version = \"$NEW_VERSION\"/" "$toml"
-                 echo "::notice::Updated version in $toml to $NEW_VERSION (using sed)"
-               fi
-               # Handle workspace.package definition
-               if grep -q '\[workspace\.package\]' "$toml" && grep -A5 '\[workspace\.package\]' "$toml" | grep -q '^version\s*='; then
-                 sed -i "/\[workspace\.package\]/,/version\s*=/ s/^version\s*=\s*\"[^\"]*\"/version = \"$NEW_VERSION\"/" "$toml"
-                 echo "::notice::Updated workspace package version in $toml to $NEW_VERSION (using sed)"
-               fi
-             done
+            CARGO_EDIT_INSTALLED=true
+          fi
+          
+          # Use cargo-edit (if available) or sed to update versions
+          if [ "$CARGO_EDIT_INSTALLED" = "true" ]; then
+            echo "Attempting to set version using cargo set-version..."
+            if cargo set-version --workspace "$NEW_VERSION"; then
+               echo "::notice::Successfully set version for workspace members using 'cargo set-version --workspace'."
+               CARGO_EDIT_FAILED=false
+            else
+               echo "::warning::'cargo set-version --workspace' failed or no workspace members found inheriting version. Falling back to manual sed."
+               CARGO_EDIT_FAILED=true
+            fi
+          else
+            CARGO_EDIT_FAILED=true
+          fi
+          
+          # Fallback/alternative: Manual find and sed (handle workspace.package too)
+          if [ "${CARGO_EDIT_FAILED:-true}" = "true" ]; then
+            echo "Using sed to update versions in Cargo.toml files..."
+            find . -path ./target -prune -o -name Cargo.toml -print | while read -r toml; do
+              if grep -q '^version\s*=\s*"[^"]*"' "$toml" && ! grep -q '\[workspace\]' "$toml"; then # Avoid top-level workspace file here
+                sed -i -E "s/^version\s*=\s*\"[^\"]*\"/version = \"$NEW_VERSION\"/" "$toml"
+                echo "::notice::Updated version in $toml to $NEW_VERSION (using sed)"
+              fi
+              # Handle workspace.package definition
+              if grep -q '\[workspace\.package\]' "$toml" && grep -A5 '\[workspace\.package\]' "$toml" | grep -q '^version\s*='; then
+                sed -i "/\[workspace\.package\]/,/version\s*=/ s/^version\s*=\s*\"[^\"]*\"/version = \"$NEW_VERSION\"/" "$toml"
+                echo "::notice::Updated workspace package version in $toml to $NEW_VERSION (using sed)"
+              fi
+            done
           fi
         shell: bash
 
@@ -187,7 +246,10 @@ jobs:
           else
             git add . # Add all changes (like updated Cargo.toml files)
             git commit -m "chore: bump version to $NEW_VERSION [skip ci]"
-            git push
+            git push || {
+              echo "::error::Failed to push version changes to repository. Please check your permissions."
+              exit 1
+            }
             echo "::notice::Committed and pushed version updates"
           fi
         shell: bash
@@ -198,6 +260,9 @@ jobs:
           set -euo pipefail
           NEW_TAG="${{ steps.new_version.outputs.new_tag }}"
           git tag "$NEW_TAG" -m "Release $NEW_TAG"
-          git push origin "$NEW_TAG"
+          git push origin "$NEW_TAG" || {
+            echo "::error::Failed to push tag to repository. Please check your permissions."
+            exit 1
+          }
           echo "::notice::Created and pushed tag $NEW_TAG"
         shell: bash
