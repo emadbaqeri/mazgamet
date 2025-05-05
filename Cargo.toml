@@ -1,3 +1,40 @@
 [workspace]
 resolver = "3"
 members = ["lexer"]
+
+[workspace.package]
+version = "0.1.0"
+license = "MIT"
+rust-version = "1.76"
+edition = "2024"
+readme = "README.md"
+homepage = "https://github.com/emadbaqeri/mazgamet"
+repository = "https://github.com/emadbaqeri/mazgamet"
+documentation = "https://github.com/emadbaqeri/mazgamet"
+authors = ["emadbaqeri <hey@emaaad.com>"]
+categories = ["compiler", "parser-implementations", "development-tools"]
+keywords = ["lexer", "parser", "compiler", "language"]
+
+[workspace.dependencies]
+log = "0.4"
+simplelog = "0.12"
+chrono = { version = "0.4", default-features = false, features = ["std", "clock"] }
+
+[workspace.lints.clippy]
+explicit_iter_loop = "warn"
+flat_map_option = "warn"
+implicit_clone = "warn"
+needless_for_each = "warn"
+semicolon_if_nothing_returned = "warn"
+uninlined_format_args = "warn"
+useless_conversion = "warn"
+
+[profile.dev.package]
+# Optimize dependencies in dev mode for faster testing
+insta.opt-level = 3
+similar.opt-level = 3
+
+[profile.release]
+strip = "debuginfo"
+codegen-units = 1
+lto = true

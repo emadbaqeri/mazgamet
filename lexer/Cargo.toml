@@ -2,8 +2,16 @@
 name = "lexer"
 version = "0.1.0"
 edition = "2024"
+license = "MIT"
+authors = ["emadbaqeri <hey@emaaad.com>"]
+description = "A lexical analysis component for the Mazgamet project"
+homepage = "https://github.com/emadbaqeri/mazgamet"
+repository = "https://github.com/emadbaqeri/mazgamet"
+documentation = "https://github.com/emadbaqeri/mazgamet"
+keywords = ["lexer", "tokenizer", "compiler"]
+categories = ["compiler", "parser-implementations"]
 
 [dependencies]
-log = "0.4"
-simplelog = "0.12"
-chrono = "0.4"
+log = { workspace = true }
+simplelog = { workspace = true }
+chrono = { workspace = true }
