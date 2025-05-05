@@ -4,66 +4,103 @@ on:
   push:
     branches:
       - main
+    paths-ignore:
+      - 'mazgamet/CHANGELOG.md'
   workflow_dispatch:
 
 jobs:
   generate-changelog:
     runs-on: ubuntu-latest
+    # Skip this workflow if the auto-tag workflow will run it
+    if: "!contains(github.event.head_commit.message, '[skip ci]')"
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
+      # Check if any tags exist first
+      - name: Check for tags
+        id: check_tags
+        continue-on-error: true
+        run: |
+          TAG_COUNT=$(git tag | wc -l)
+          echo "tag_count=$TAG_COUNT" >> $GITHUB_OUTPUT
+          if [ "$TAG_COUNT" -gt 0 ]; then
+            LATEST_TAG=$(git describe --tags --abbrev=0)
+            echo "latest_tag=$LATEST_TAG" >> $GITHUB_OUTPUT
+            echo "::notice::Found latest tag: $LATEST_TAG"
+          else
+            echo "::notice::No tags found in repository"
+          fi
+
+      # Only run changelog builder if tags exist
       - name: Generate CHANGELOG
         id: github_release
+        if: steps.check_tags.outputs.tag_count > 0
+        continue-on-error: true
         uses: mikepenz/release-changelog-builder-action@v4
         with:
           configuration: .github/changelog-config.json
           ignorePreReleases: true
+          failOnError: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Create/Update CHANGELOG.md
         run: |
-          # Get the latest tag
-          LATEST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "No tags yet")
+          # Create CHANGELOG.md if it doesn't exist
+          if [ ! -f CHANGELOG.md ]; then
+            echo "# Changelog" > CHANGELOG.md
+            echo "" >> CHANGELOG.md
+            echo "## Unreleased" >> CHANGELOG.md
+            echo "" >> CHANGELOG.md
+            echo "### Added" >> CHANGELOG.md
+            echo "- Initial project setup" >> CHANGELOG.md
+            echo "- Lexer crate structure" >> CHANGELOG.md
+            echo "" >> CHANGELOG.md
+            echo "::notice::Created new CHANGELOG.md file"
+          else
+            echo "::notice::CHANGELOG.md already exists"
+          fi
           
-          if [ "$LATEST_TAG" != "No tags yet" ]; then
-            # Create or update CHANGELOG.md
-            if [ ! -f CHANGELOG.md ]; then
-              echo "# Changelog" > CHANGELOG.md
-              echo "" >> CHANGELOG.md
-            fi
-            
-            # Add new changelog
+          # Only update with tag information if tags exist
+          if [ "${{ steps.check_tags.outputs.tag_count }}" -gt 0 ]; then
+            LATEST_TAG="${{ steps.check_tags.outputs.latest_tag }}"
             VERSION=${LATEST_TAG#v}
             
-            # Create a temporary file with the new content
-            cat <<EOT > temp_changelog.md
-            # Changelog
-            
-            ## $LATEST_TAG ($(date +'%Y-%m-%d'))
-            
-            ${{ steps.github_release.outputs.changelog }}
-            
-            EOT
-            
-            # Append the existing content excluding the header
-            tail -n +3 CHANGELOG.md >> temp_changelog.md
-            
-            # Replace the old file
-            mv temp_changelog.md CHANGELOG.md
-            
-            # Commit the changes if there are any
-            if git diff --quiet CHANGELOG.md; then
-              echo "No changes to CHANGELOG.md"
+            # Check if this version is already in the changelog
+            if ! grep -q "## $LATEST_TAG" CHANGELOG.md; then
+              # Create a temporary file with the new content
+              cat <<EOT > temp_changelog.md
+              # Changelog
+              
+              ## $LATEST_TAG ($(date +'%Y-%m-%d'))
+              
+              ${{ steps.github_release.outputs.changelog || 'No changes' }}
+              
+              EOT
+              
+              # Append the existing content excluding the header
+              tail -n +3 CHANGELOG.md >> temp_changelog.md
+              
+              # Replace the old file
+              mv temp_changelog.md CHANGELOG.md
+              
+              echo "::notice::Updated CHANGELOG.md with version $LATEST_TAG"
             else
-              git config --local user.email "github-actions[bot]@users.noreply.github.com"
-              git config --local user.name "github-actions[bot]"
-              git add CHANGELOG.md
-              git commit -m "docs: update CHANGELOG.md for $LATEST_TAG"
-              git push
+              echo "::notice::Version $LATEST_TAG already in CHANGELOG.md"
             fi
           else
-            echo "No tags found, skipping CHANGELOG generation"
+            echo "::notice::No tags found, only ensuring CHANGELOG.md exists"
+          fi
+          
+          # Only commit if there are changes and we're not in a workflow that already commits
+          if git diff --quiet CHANGELOG.md; then
+            echo "::notice::No changes to CHANGELOG.md"
+          else
+            git config --local user.email "github-actions[bot]@users.noreply.github.com"
+            git config --local user.name "github-actions[bot]"
+            git add CHANGELOG.md
+            git commit -m "docs: update CHANGELOG.md [skip ci]"
+            git push || echo "::warning::Failed to push CHANGELOG updates"
           fi
