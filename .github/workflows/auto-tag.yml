@@ -67,15 +67,20 @@ jobs:
             INCREMENT_TYPE="${{ github.event.inputs.version_increment }}"
             echo "::notice::Using manual increment type: $INCREMENT_TYPE"
           else
-            # Auto-detect based on conventional commits since last tag
-            # Use --format=%B to get the full commit message body for BREAKING CHANGE check
-            COMMITS=$(git log ${{ steps.latest_tag.outputs.latest_tag }}..HEAD --format=%B)
-            if echo "$COMMITS" | grep -qE '^BREAKING CHANGE:|^break:'; then
-              INCREMENT_TYPE="major"
-            elif echo "$COMMITS" | grep -qE '^feat:'; then
-              INCREMENT_TYPE="minor"
+            # Check if LATEST_TAG is valid before running git log
+            if [ "${{ steps.latest_tag.outputs.latest_tag }}" == "v0.0.0" ]; then
+              echo "::notice::No previous tags found. Defaulting increment type to patch."
+            else
+              # Auto-detect based on conventional commits since last tag
+              # Use --format=%B to get the full commit message body for BREAKING CHANGE check
+              COMMITS=$(git log ${{ steps.latest_tag.outputs.latest_tag }}..HEAD --format=%B)
+              if echo "$COMMITS" | grep -qE '^BREAKING CHANGE:|^break:'; then
+                INCREMENT_TYPE="major"
+              elif echo "$COMMITS" | grep -qE '^feat:'; then
+                INCREMENT_TYPE="minor"
+              fi
+              echo "::notice::Detected increment type from commits: $INCREMENT_TYPE"
             fi
-            echo "::notice::Detected increment type from commits: $INCREMENT_TYPE"
           fi
           echo "increment=$INCREMENT_TYPE" >> $GITHUB_OUTPUT
         shell: bash
