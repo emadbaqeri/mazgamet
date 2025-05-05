@@ -12,7 +12,7 @@ jobs:
   generate-changelog:
     runs-on: ubuntu-latest
     # Skip this workflow if the auto-tag workflow will run it
-    if: "!contains(github.event.head_commit.message, '[skip ci]')"
+    if: '!contains(github.event.head_commit.message, "[skip ci]")'
     steps:
       - uses: actions/checkout@v4
         with:
@@ -48,43 +48,52 @@ jobs:
 
       - name: Create/Update CHANGELOG.md
         run: |
+          CHANGELOG_PATH="mazgamet/CHANGELOG.md"
+          
           # Create CHANGELOG.md if it doesn't exist
-          if [ ! -f CHANGELOG.md ]; then
-            echo "# Changelog" > CHANGELOG.md
-            echo "" >> CHANGELOG.md
-            echo "## Unreleased" >> CHANGELOG.md
-            echo "" >> CHANGELOG.md
-            echo "### Added" >> CHANGELOG.md
-            echo "- Initial project setup" >> CHANGELOG.md
-            echo "- Lexer crate structure" >> CHANGELOG.md
-            echo "" >> CHANGELOG.md
+          if [ ! -f "$CHANGELOG_PATH" ]; then
+            echo "# Changelog" > "$CHANGELOG_PATH"
+            echo "" >> "$CHANGELOG_PATH"
+            echo "## Unreleased" >> "$CHANGELOG_PATH"
+            echo "" >> "$CHANGELOG_PATH"
+            echo "### Added" >> "$CHANGELOG_PATH"
+            echo "- Initial project setup" >> "$CHANGELOG_PATH"
+            echo "- Lexer crate structure" >> "$CHANGELOG_PATH"
+            echo "" >> "$CHANGELOG_PATH"
             echo "::notice::Created new CHANGELOG.md file"
           else
             echo "::notice::CHANGELOG.md already exists"
           fi
           
           # Only update with tag information if tags exist
-          if [ "${{ steps.check_tags.outputs.tag_count }}" -gt 0 ]; then
+          TAG_COUNT="${{ steps.check_tags.outputs.tag_count }}"
+          if [ "$TAG_COUNT" -gt 0 ]; then
             LATEST_TAG="${{ steps.check_tags.outputs.latest_tag }}"
             VERSION=${LATEST_TAG#v}
             
             # Check if this version is already in the changelog
-            if ! grep -q "## $LATEST_TAG" CHANGELOG.md; then
-              # Create a temporary file with the new content
-              cat <<EOT > temp_changelog.md
-              # Changelog
+            if ! grep -q "## $LATEST_TAG" "$CHANGELOG_PATH"; then
+              TEMP_FILE="temp_changelog.md"
               
-              ## $LATEST_TAG ($(date +'%Y-%m-%d'))
+              # Create a temporary file with basic structure
+              echo "# Changelog" > "$TEMP_FILE"
+              echo "" >> "$TEMP_FILE"
+              echo "## $LATEST_TAG ($(date +'%Y-%m-%d'))" >> "$TEMP_FILE"
+              echo "" >> "$TEMP_FILE"
               
-              ${{ steps.github_release.outputs.changelog || 'No changes' }}
-              
-              EOT
+              # Add changelog content
+              if [ -n "${{ steps.github_release.outputs.changelog }}" ]; then
+                echo "${{ steps.github_release.outputs.changelog }}" >> "$TEMP_FILE"
+              else
+                echo "No changes" >> "$TEMP_FILE"
+              fi
+              echo "" >> "$TEMP_FILE"
               
               # Append the existing content excluding the header
-              tail -n +3 CHANGELOG.md >> temp_changelog.md
+              tail -n +3 "$CHANGELOG_PATH" >> "$TEMP_FILE"
               
               # Replace the old file
-              mv temp_changelog.md CHANGELOG.md
+              mv "$TEMP_FILE" "$CHANGELOG_PATH"
               
               echo "::notice::Updated CHANGELOG.md with version $LATEST_TAG"
             else
@@ -95,12 +104,12 @@ jobs:
           fi
           
           # Only commit if there are changes and we're not in a workflow that already commits
-          if git diff --quiet CHANGELOG.md; then
+          if git diff --quiet "$CHANGELOG_PATH"; then
             echo "::notice::No changes to CHANGELOG.md"
           else
             git config --local user.email "github-actions[bot]@users.noreply.github.com"
             git config --local user.name "github-actions[bot]"
-            git add CHANGELOG.md
+            git add "$CHANGELOG_PATH"
             git commit -m "docs: update CHANGELOG.md [skip ci]"
             git push || echo "::warning::Failed to push CHANGELOG updates"
           fi

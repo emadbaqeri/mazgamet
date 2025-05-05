@@ -21,12 +21,12 @@ jobs:
     name: Auto-Tag Latest Commit
     runs-on: ubuntu-latest
     # Don't run this job if the push was already tagged
-    if: "!startsWith(github.ref, 'refs/tags/')"
+    if: '!startsWith(github.ref, "refs/tags/")'
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          token: ${{ secrets.PAT_TOKEN || secrets.GITHUB_TOKEN }}
+          token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Set Git User
         run: |
@@ -168,24 +168,25 @@ jobs:
           NEW_VERSION="${{ steps.new_version.outputs.new_version }}"
           NEW_TAG="${{ steps.new_version.outputs.new_tag }}"
           TODAY=$(date +'%Y-%m-%d')
+          CHANGELOG_PATH="mazgamet/CHANGELOG.md"
           
           # Create CHANGELOG.md if it doesn't exist
-          if [ ! -f mazgamet/CHANGELOG.md ]; then
-            echo "# Changelog" > mazgamet/CHANGELOG.md
-            echo "" >> mazgamet/CHANGELOG.md
+          if [ ! -f "$CHANGELOG_PATH" ]; then
+            echo "# Changelog" > "$CHANGELOG_PATH"
+            echo "" >> "$CHANGELOG_PATH"
           fi
           
           # Check if Unreleased section exists
-          if grep -q "## Unreleased" mazgamet/CHANGELOG.md; then
+          if grep -q "## Unreleased" "$CHANGELOG_PATH"; then
             # Convert Unreleased section to version section
-            sed -i "s/## Unreleased/## $NEW_TAG ($TODAY)/" mazgamet/CHANGELOG.md
+            sed -i "s/## Unreleased/## $NEW_TAG ($TODAY)/" "$CHANGELOG_PATH"
             # Add a new Unreleased section at the top
-            sed -i "s/# Changelog/# Changelog\n\n## Unreleased\n/" mazgamet/CHANGELOG.md
+            sed -i "s/# Changelog/# Changelog\n\n## Unreleased\n/" "$CHANGELOG_PATH"
           else
             # Add new version section right after the header
-            sed -i "s/# Changelog/# Changelog\n\n## $NEW_TAG ($TODAY)\n\n### Added\n- Auto-generated release/" mazgamet/CHANGELOG.md
+            sed -i "s/# Changelog/# Changelog\n\n## $NEW_TAG ($TODAY)\n\n### Added\n- Auto-generated release/" "$CHANGELOG_PATH"
             # Add Unreleased section at the top
-            sed -i "s/# Changelog/# Changelog\n\n## Unreleased\n/" mazgamet/CHANGELOG.md
+            sed -i "s/# Changelog/# Changelog\n\n## Unreleased\n/" "$CHANGELOG_PATH"
           fi
           
           echo "::notice::Updated CHANGELOG.md with new version $NEW_TAG"
