@@ -1,0 +1,102 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v[0-9]+.[0-9]+.[0-9]+*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to release (e.g., 0.1.0)'
+        required: true
+        type: string
+
+jobs:
+  create-release:
+    name: Create GitHub Release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set release version (from tag)
+        if: github.event_name == 'push'
+        run: echo "RELEASE_VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_ENV
+
+      - name: Set release version (from input)
+        if: github.event_name == 'workflow_dispatch'
+        run: echo "RELEASE_VERSION=${{ github.event.inputs.version }}" >> $GITHUB_ENV
+
+      - name: Generate changelog
+        id: changelog
+        run: |
+          # Extract and format changelog from CHANGELOG.md
+          # Assuming you have a CHANGELOG.md file with standard format
+          if [ -f CHANGELOG.md ]; then
+            echo "changelog<<EOF" >> $GITHUB_OUTPUT
+            # Extract the section for the current version
+            sed -n "/## v$RELEASE_VERSION/,/## v/p" CHANGELOG.md | sed '1p;/## v[0-9]/d' >> $GITHUB_OUTPUT
+            echo "EOF" >> $GITHUB_OUTPUT
+          else
+            echo "changelog=Release v$RELEASE_VERSION" >> $GITHUB_OUTPUT
+          fi
+      
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          name: Release v${{ env.RELEASE_VERSION }}
+          body: ${{ steps.changelog.outputs.changelog }}
+          draft: false
+          prerelease: false
+          token: ${{ secrets.GITHUB_TOKEN }}
+          tag_name: v${{ env.RELEASE_VERSION }}
+          generate_release_notes: true
+
+  publish-crates:
+    name: Publish to crates.io
+    runs-on: ubuntu-latest
+    needs: create-release
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Check version consistency
+        run: |
+          if [ "${{ github.event_name }}" = "push" ]; then
+            VERSION=${GITHUB_REF#refs/tags/v}
+          else
+            VERSION=${{ github.event.inputs.version }}
+          fi
+          
+          # Check if workspace version matches tag version
+          WORKSPACE_VERSION=$(grep -oP 'version = "\K[^"]+' mazgamet/Cargo.toml | head -1)
+          if [ "$WORKSPACE_VERSION" != "$VERSION" ]; then
+            echo "Error: Tag version ($VERSION) doesn't match workspace version ($WORKSPACE_VERSION)"
+            exit 1
+          fi
+          
+          # Check if all crate versions match
+          for toml in $(find . -name Cargo.toml -not -path "*/target/*"); do
+            if grep -q '\[package\]' "$toml"; then
+              CRATE_VERSION=$(grep -oP 'version = "\K[^"]+' "$toml" | head -1)
+              if [ "$CRATE_VERSION" != "$VERSION" ]; then
+                echo "Error: Crate version in $toml ($CRATE_VERSION) doesn't match expected version ($VERSION)"
+                exit 1
+              fi
+            fi
+          done
+
+      - name: Publish crates
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CRATES_IO_TOKEN }}
+        run: |
+          # First publish any crates that are depended on by other crates
+          cd mazgamet/lexer && cargo publish
+          
+          # Wait for crates.io to index the crates
+          sleep 30
+          
+          # Then publish any crates that depend on the previous ones
+          # For now we only have one crate, but this can be expanded

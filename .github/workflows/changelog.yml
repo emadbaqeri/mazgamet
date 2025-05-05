@@ -1,0 +1,69 @@
+name: Generate CHANGELOG
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  generate-changelog:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Generate CHANGELOG
+        id: github_release
+        uses: mikepenz/release-changelog-builder-action@v4
+        with:
+          configuration: .github/changelog-config.json
+          ignorePreReleases: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create/Update CHANGELOG.md
+        run: |
+          # Get the latest tag
+          LATEST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "No tags yet")
+          
+          if [ "$LATEST_TAG" != "No tags yet" ]; then
+            # Create or update CHANGELOG.md
+            if [ ! -f CHANGELOG.md ]; then
+              echo "# Changelog" > CHANGELOG.md
+              echo "" >> CHANGELOG.md
+            fi
+            
+            # Add new changelog
+            VERSION=${LATEST_TAG#v}
+            
+            # Create a temporary file with the new content
+            cat <<EOT > temp_changelog.md
+            # Changelog
+            
+            ## $LATEST_TAG ($(date +'%Y-%m-%d'))
+            
+            ${{ steps.github_release.outputs.changelog }}
+            
+            EOT
+            
+            # Append the existing content excluding the header
+            tail -n +3 CHANGELOG.md >> temp_changelog.md
+            
+            # Replace the old file
+            mv temp_changelog.md CHANGELOG.md
+            
+            # Commit the changes if there are any
+            if git diff --quiet CHANGELOG.md; then
+              echo "No changes to CHANGELOG.md"
+            else
+              git config --local user.email "github-actions[bot]@users.noreply.github.com"
+              git config --local user.name "github-actions[bot]"
+              git add CHANGELOG.md
+              git commit -m "docs: update CHANGELOG.md for $LATEST_TAG"
+              git push
+            fi
+          else
+            echo "No tags found, skipping CHANGELOG generation"
+          fi

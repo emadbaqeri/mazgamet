@@ -1,0 +1,11 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Questions & Discussions
+    url: https://github.com/emadbaqeri/mazgamet/discussions
+    about: Please ask and answer questions here.
+  - name: Documentation
+    url: https://github.com/emadbaqeri/mazgamet/blob/main/README.md
+    about: Check the documentation for usage information.
+  - name: Direct Contact
+    url: https://github.com/emadbaqeri
+    about: Contact the maintainer directly for urgent matters.

@@ -1,88 +1,82 @@
-# mazgamet 🐒🦀
+# Mazgamet
 
-Welcome to `mazgamet`! This project is a Rust implementation of the interpreter for the **Maz** language, heavily inspired by the **Monkey** language featured in Thorsten Ball's fantastic book, ["Writing An Interpreter In Go"](https://interpreterbook.com/).
+[![CI](https://github.com/emadbaqeri/mazgamet/actions/workflows/ci.yml/badge.svg)](https://github.com/emadbaqeri/mazgamet/actions/workflows/ci.yml)
+[![Security audit](https://github.com/emadbaqeri/mazgamet/actions/workflows/audit.yml/badge.svg)](https://github.com/emadbaqeri/mazgamet/actions/workflows/audit.yml)
+[![Crates.io](https://img.shields.io/crates/v/lexer.svg)](https://crates.io/crates/lexer)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-While the book uses Go, this project serves as an exercise in applying the same concepts (lexer, parser, Abstract Syntax Tree, evaluator, REPL) using the Rust programming language. Think of it as Monkey's Rust-loving cousin, Maz!
+A lexical analyzer and parsing tools library for building compilers and interpreters.
 
-## About the Maz Language 🗣️
+## Features
 
-Maz aims to mirror the features and simplicity of the Monkey language described in the book. This includes:
+- Fast and memory-efficient lexical analysis
+- Customizable tokenization rules
+- Comprehensive error reporting
+- Simple API for integration with parsers
 
-*   C-like syntax
-*   Variable bindings (`let`)
-*   Integers and Booleans
-*   Arithmetic expressions
-*   Prefix and infix operators
-*   Conditionals (`if`/`else`)
-*   Function definitions and application (closures)
-*   Return statements
-*   *(Potentially more features as the project progresses, like strings, arrays, hash maps)*
+## Installation
 
-The primary goal is educational – to understand the mechanics of building an interpreter from scratch.
+Add the following to your `Cargo.toml` file:
 
-## Project Status 🛠️
+```toml
+[dependencies]
+lexer = "0.1.0"
+```
 
-This is a learning project and likely a work-in-progress, following the structure and chapters of the ["Writing An Interpreter In Go"](https://interpreterbook.com/) book. Expect rough edges and incomplete features! It's not production-ready, but hopefully, it's a fun exploration of interpreters and Rust.
+## Example Usage
 
-## Getting Started 🚀
+```rust
+// Coming soon!
+```
 
-You can build and run the `mazgamet` interpreter (which likely includes a REPL) using standard Rust tooling.
+## Development
 
 ### Prerequisites
 
-*   **Rust:** Ensure you have the Rust toolchain installed. Get it from [rustup.rs](https://rustup.rs/).
+- Rust 1.76 or later
+- Cargo
 
 ### Building
 
-1.  **Clone the repository:**
-    ```bash
-    git clone <your-repository-url>
-    cd mazgamet
-    ```
-2.  **Build the project:**
-    ```bash
-    cargo build
-    ```
-    For potentially better performance:
-    ```bash
-    cargo build --release
-    ```
-
-### Running the REPL
-
-To start the Read-Eval-Print Loop (REPL) and interact with the Maz language:
-
-*   **Development build:**
-    ```bash
-    cargo run
-    ```
-*   **Release build (after building with `--release`):**
-    ```bash
-    ./target/release/mazgamet
-    ```
-
-Once the REPL starts (look for a prompt like `>>`), you can type Maz code:
-
-```maz
->> let add = fn(x, y) { x + y };
->> add(5, 10);
-15
->> let message = "Hello, Maz!"; // If strings are implemented
->> message
-"Hello, Maz!"
+```bash
+cargo build --workspace
 ```
 
-## Goals 🎉
+### Testing
 
-*   Learn the fundamentals of interpreter design and implementation.
-*   Solidify understanding of Rust by applying it to a non-trivial project.
-*   Translate the Go implementation patterns from the book into idiomatic Rust.
-*   Have fun building a programming language!
+```bash
+cargo test --workspace
+```
 
-## Contributing 🤝
+### Running Lints
 
-As this is primarily a learning exercise following the book, contributions aren't the main focus. However, if you spot bugs, have suggestions for more idiomatic Rust, or want to discuss interpreter concepts, feel free to open an issue!
+```bash
+cargo clippy --all-targets --all-features -- -D warnings
+cargo fmt --all -- --check
+```
 
-## License 📝
+## Contributing
 
-This project is licensed under the **MIT License**. See the [LICENSE](LICENSE) file for details.
+1. Fork the repository
+2. Create your feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit your changes using [Conventional Commits](https://www.conventionalcommits.org/) format
+4. Push to the branch (`git push origin feature/amazing-feature`)
+5. Open a Pull Request
+
+Please make sure to update tests as appropriate and follow the code style guidelines.
+
+## Release Process
+
+1. Update version numbers in all Cargo.toml files
+2. Update CHANGELOG.md following the Keep a Changelog format
+3. Create a new git tag with the version number (e.g., `v0.1.0`)
+4. Push the tag to GitHub
+5. The CI/CD pipeline will automatically create a GitHub release and publish to crates.io
+
+## License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+## Acknowledgements
+
+- Thanks to all contributors and supporters
