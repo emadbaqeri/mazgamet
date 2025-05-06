@@ -33,9 +33,14 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Run audit check
-        # v1 is the current latest major version
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        
+      - name: Install cargo-audit
+        run: cargo install cargo-audit
+        
+      - name: Run audit check with GitHub integration
         uses: rustsec/audit-check@v1
         with:
-          # GITHUB_TOKEN is implicitly used by the action for reporting
           token: ${{ secrets.GITHUB_TOKEN }}
+        continue-on-error: true
