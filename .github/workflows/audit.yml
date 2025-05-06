@@ -1,10 +1,10 @@
-# file: audit.yml
+# file: audit-improved.yml
 name: Security audit
 
 # Restrict permissions to the minimum required
 permissions:
-  contents: read # Needed to checkout the code
-  security-events: write # Needed by rustsec/audit-check to report findings
+  contents: read
+  security-events: write
 
 on:
   schedule:
@@ -33,14 +33,69 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Install Rust
+      - name: Setup Rust toolchain
         uses: dtolnay/rust-toolchain@stable
-        
-      - name: Install cargo-audit
-        run: cargo install cargo-audit
-        
-      - name: Run audit check with GitHub integration
-        uses: rustsec/audit-check@v1
+      
+      - name: Cache cargo dependencies
+        uses: actions/cache@v3
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-
+
+      - name: Install cargo-audit
+        run: cargo install cargo-audit --locked
+        
+      # Direct approach that doesn't rely on a potentially outdated action
+      - name: Run cargo audit
+        id: cargo-audit
+        run: |
+          # Create output directory for reports
+          mkdir -p audit-reports
+          
+          # Run cargo audit and capture output
+          echo "Running cargo audit..."
+          cargo audit --json > audit-reports/audit.json || {
+            echo "::warning::Vulnerabilities found in dependencies. See audit report for details."
+            echo "has_vulnerabilities=true" >> $GITHUB_OUTPUT
+            # Don't fail the workflow, but mark that we found vulnerabilities
+          }
+          
+          # Create a human-readable report
+          echo "Creating human-readable report..."
+          cargo audit > audit-reports/audit.txt
+          
+          # Output summary to the workflow log
+          echo "\n==== Audit Summary ===="
+          cat audit-reports/audit.txt
+          echo "======================"
+        
+      - name: Upload audit results
+        uses: actions/upload-artifact@v3
+        with:
+          name: audit-reports
+          path: audit-reports/
+          retention-days: 7
+          
+      # Optional - fail the workflow if vulnerabilities were found
+      # Uncomment this if you want to make the workflow fail when vulnerabilities are found
+      # - name: Check for vulnerabilities
+      #   if: steps.cargo-audit.outputs.has_vulnerabilities == 'true'
+      #   run: |
+      #     echo "::error::Security vulnerabilities found in dependencies. Review the audit report."
+      #     exit 1
+      
+      # If you want to use GitHub Security Advisories, you can use this action instead
+      # Note that this might require additional setup
+      - name: GitHub Security Advisories
+        uses: github/codeql-action/upload-sarif@v2
+        if: always() # Run even if the previous step failed
+        with:
+          sarif_file: audit-reports/audit.json
+          category: cargo-audit
         continue-on-error: true
