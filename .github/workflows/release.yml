@@ -5,7 +5,7 @@ permissions:
 on:
   push:
     tags:
-      - "v[0-9]+.[0-9]+.[0-9]+*"
+      - "[0-9]+.[0-9]+.[0-9]+"
   workflow_dispatch:
     inputs:
       tag:
@@ -15,105 +15,273 @@ on:
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: false
+
 jobs:
-  create-gh-release:
+  create-release:
     name: Create GitHub Release
     runs-on: ubuntu-latest
     outputs:
-      release_tag: ${{ steps.vars.outputs.tag }}
-      release_version: ${{ steps.vars.outputs.version }}
-      changelog_content: ${{ steps.changelog_builder.outputs.changelog }}
+      version: ${{ env.VERSION }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-      - name: Set release version variables
-        id: vars
+        with:
+          fetch-depth: 0
+
+      - name: Set version from tag
         run: |
-          set -euo pipefail
           if [[ "${{ github.event_name }}" == "push" ]]; then
-            TAG_NAME="${GITHUB_REF#refs/tags/}"
+            VERSION="${GITHUB_REF#refs/tags/}"
           else
-            TAG_NAME="${{ github.event.inputs.tag }}"
-            if [[ ! "$TAG_NAME" =~ ^v ]]; then
-              TAG_NAME="v$TAG_NAME"
+            VERSION="${{ github.event.inputs.tag }}"
+            if [[ ! "$VERSION" =~ ^v ]]; then
+              VERSION="v$VERSION"
             fi
           fi
-          VERSION="${TAG_NAME#v}"
-          echo "tag=$TAG_NAME" >> $GITHUB_OUTPUT
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
-          echo "::notice::Preparing release for tag: $TAG_NAME (Version: $VERSION)"
-        shell: bash
-      - name: Generate Changelog Content using Builder Action
-        id: changelog_builder
-        uses: mikepenz/release-changelog-builder-action@v4
-        with:
-          configuration: ".github/changelog-config.json"
-          ignorePreReleases: true
+          echo "VERSION=${VERSION#v}" >> $GITHUB_ENV
+          echo "::notice::Preparing release for version: $VERSION"
+
+      - name: Validate Cargo.toml version
+        run: |
+          if ! grep -q "\"version\" *= *\"$VERSION\"" Cargo.toml; then
+            echo "Error: Cargo.toml version does not match tag version" >&2
+            exit 1
+          fi
+
+      - name: Create draft release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+        run: |
+          gh release create $VERSION --draft --verify-tag --title $VERSION
+
+  build-release:
+    name: Build Release - ${{ matrix.build }}
+    needs: create-release
+    runs-on: ${{ matrix.os }}
+    env:
+      CARGO: cargo
+      CROSS_VERSION: v0.2.5
+      RUST_BACKTRACE: 1
+      PCRE2_SYS_STATIC: 1
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Linux static builds
+          - build: linux-amd64
+            os: ubuntu-latest
+            rust: nightly
+            target: x86_64-unknown-linux-musl
+            strip: x86_64-linux-musl-strip
+          # Linux cross builds
+          - build: linux-i386
+            os: ubuntu-latest
+            rust: stable
+            target: i686-unknown-linux-gnu
+            strip: x86_64-linux-gnu-strip
+            qemu: i386
+          - build: linux-armhf
+            os: ubuntu-latest
+            rust: stable
+            target: armv7-unknown-linux-gnueabihf
+            strip: arm-linux-gnueabihf-strip
+            qemu: qemu-arm
+          # Darwin builds
+          - build: macos-amd64
+            os: macos-latest
+            rust: nightly
+            target: x86_64-apple-darwin
+          # Windows builds
+          - build: windows-amd64
+            os: windows-latest
+            rust: nightly
+            target: x86_64-pc-windows-msvc
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
         with:
-          tag_name: ${{ steps.vars.outputs.tag }}
-          name: Release ${{ steps.vars.outputs.tag }}
-          body: ${{ steps.changelog_builder.outputs.changelog }}
-          draft: false
-          prerelease: false
+          ref: ${{ needs.create-release.outputs.version }}
+
+      - name: Install Ubuntu packages
+        if: matrix.os == 'ubuntu-latest'
+        run: sudo apt-get update && sudo apt-get install -y libssl-dev
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ matrix.rust }}
+          target: ${{ matrix.target }}
+
+      - name: Setup Cross (Linux)
+        if: matrix.os == 'ubuntu-latest' && matrix.target != ''
+        run: |
+          dir="$RUNNER_TEMP/cross"
+          mkdir -p "$dir"
+          echo "$dir" >> $GITHUB_PATH
+          curl -L "https://github.com/cross-rs/cross/releases/download/$CROSS_VERSION/cross-x86_64-unknown-linux-musl.tar.gz" |
+            tar xz -C "$dir"
+          echo "CARGO=cross" >> $GITHUB_ENV
+
+      - name: Set target flags
+        run: |
+          echo "TARGET_FLAGS=--target ${{ matrix.target }}" >> $GITHUB_ENV
+          echo "TARGET_DIR=./target/${{ matrix.target }}" >> $GITHUB_ENV
+
+      - name: Build binary
+        run: |
+          $CARGO build --release --features pcre2 $TARGET_FLAGS
+          if [ "$RUNNER_OS" == "Windows" ]; then
+            BIN=target/${{ matrix.target }}/release/my-app.exe
+          else
+            BIN=target/${{ matrix.target }}/release/my-app
+          fi
+          echo "BIN=$BIN" >> $GITHUB_ENV
+
+      - name: Strip binary (Linux/macOS)
+        if: matrix.os != 'windows-latest'
+        run: |
+          if [ "$CARGO" = "cross" ]; then
+            docker run --rm -v "$PWD/target:/target:Z" \
+              "ghcr.io/cross-rs/${{ matrix.target }}:main" \
+              "${{ matrix.strip }}" "/$BIN"
+          else
+            strip "$BIN"
+          fi
+
+      - name: Generate archive name
+        run: |
+          echo "ARCHIVE=my-app-${{ needs.create-release.outputs.version }}-${{ matrix.target }}" >> $GITHUB_ENV
+
+      - name: Create archive structure
+        run: |
+          mkdir -p "$ARCHIVE"/{complete,doc}
+          cp "$BIN" "$ARCHIVE/"
+          cp README.md LICENSE "$ARCHIVE/"
+
+      - name: Generate documentation (native)
+        if: matrix.qemu == ''
+        run: |
+          "$BIN" --generate man > "$ARCHIVE/doc/my-app.1"
+          "$BIN" --generate complete-bash > "$ARCHIVE/complete/my-app.bash"
+          "$BIN" --generate complete-fish > "$ARCHIVE/complete/my-app.fish"
+
+      - name: Generate documentation (emulated)
+        if: matrix.qemu != ''
+        run: |
+          docker run --rm -v "$PWD/target:/target:Z" \
+            "ghcr.io/cross-rs/${{ matrix.target }}:main" \
+            "${{ matrix.qemu }}" "/$BIN" --generate man > "$ARCHIVE/doc/my-app.1"
+
+      - name: Create archive
+        run: |
+          if [ "$RUNNER_OS" == "Windows" ]; then
+            7z a "$ARCHIVE.zip" "$ARCHIVE"
+            certutil -hashfile "$ARCHIVE.zip" SHA256 > "$ARCHIVE.zip.sha256"
+            echo "ASSET=$ARCHIVE.zip" >> $GITHUB_ENV
+          else
+            tar czf "$ARCHIVE.tar.gz" "$ARCHIVE"
+            shasum -a 256 "$ARCHIVE.tar.gz" > "$ARCHIVE.tar.gz.sha256"
+            echo "ASSET=$ARCHIVE.tar.gz" >> $GITHUB_ENV
+          fi
+
+      - name: Upload release asset
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-  publish-crates:
-    name: Publish to crates.io
+        run: |
+          gh release upload ${{ needs.create-release.outputs.version }} $ASSET
+
+  build-deb:
+    name: Build Debian Package
+    needs: create-release
     runs-on: ubuntu-latest
-    needs: create-gh-release
-    # Fix: Use a proper if condition to check for token availability at runtime
+    env:
+      TARGET: x86_64-unknown-linux-musl
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
-          ref: ${{ needs.create-gh-release.outputs.release_tag }}
-      - name: Install Rust stable toolchain
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          toolchain: "1.86.0"
-      - name: Setup Rust cache
-        uses: Swatinem/rust-cache@v2
-      - name: Install jq
-        run: sudo apt-get update && sudo apt-get install -y jq
-      - name: Verify crate versions match tag
+          ref: ${{ needs.create-release.outputs.version }}
+
+      - name: Install dependencies
         run: |
-          set -euo pipefail
-          EXPECTED_VERSION="${{ needs.create-gh-release.outputs.release_version }}"
-          echo "::notice::Verifying crate versions match tag version: $EXPECTED_VERSION"
-          cargo metadata --format-version 1 --no-deps | jq -r --arg VERSION "$EXPECTED_VERSION" '
-            .packages[] |
-            select(.publish != false) |
-            select(.version != $VERSION) |
-            "Error: Crate \(.name) version \(.version) does not match expected release version \($VERSION)"
-          ' > version_errors.txt || true
+          sudo apt-get update
+          sudo apt-get install -y libssl-dev
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly
+          target: ${{ env.TARGET }}
+
+      - name: Install cargo-deb
+        run: cargo install cargo-deb
+
+      - name: Build debug binary
+        run: |
+          cargo build --target $TARGET
+          BIN=target/${{ env.TARGET }}/debug/my-app
+          echo "BIN=$BIN" >> $GITHUB_ENV
+
+      - name: Generate documentation
+        run: |
+          mkdir -p deployment/deb
+          "$BIN" --generate man > deployment/deb/my-app.1
+
+      - name: Build Debian package
+        run: |
+          cargo deb --target $TARGET
+          VERSION=${{ needs.create-release.outputs.version }}
+          DEB_DIR=target/${{ env.TARGET }}/debian
+          echo "DEB_NAME=my-app_$VERSION-1_amd64.deb" >> $GITHUB_ENV
+
+      - name: Upload Debian package
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release upload ${{ needs.create-release.outputs.version }} "$DEB_DIR/$DEB_NAME"
+
+  publish-crates:
+    name: Publish to crates.io
+    needs: [create-release, build-release]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.create-release.outputs.version }}
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: stable
+
+      - name: Install dependencies
+        run: sudo apt-get install -y jq
+
+      - name: Verify crate versions
+        run: |
+          EXPECTED_VERSION="${{ needs.create-release.outputs.version }}"
+          cargo metadata --format-version 1 --no-deps | jq -r \
+            ".packages[] | select(.publish != false) | select(.version != \"$EXPECTED_VERSION\")" |
+            tee version_errors.txt
           if [ -s version_errors.txt ]; then
-            cat version_errors.txt
+            echo "Error: Crate version mismatch" >&2
             exit 1
-          else
-            echo "::notice::All publishable crate versions match $EXPECTED_VERSION."
           fi
-        shell: bash
-      - name: Check if CRATES_IO_TOKEN exists
+
+      - name: Check CRATES_IO_TOKEN
         id: check_token
         run: |
           if [ -n "${{ secrets.CRATES_IO_TOKEN }}" ]; then
             echo "has_token=true" >> $GITHUB_OUTPUT
           else
-            echo "has_token=false" >> $GITHUB_OUTPUT
-            echo "::warning::CRATES_IO_TOKEN is not set. Skipping crate publishing."
+            echo "::warning::CRATES_IO_TOKEN not set. Skipping crate publishing."
           fi
-        shell: bash
-      - name: Publish crates to crates.io
+
+      - name: Publish crates
         if: steps.check_token.outputs.has_token == 'true'
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CRATES_IO_TOKEN }}
         run: |
-          set -euo pipefail
-          cargo publish --workspace --locked --token "${CARGO_REGISTRY_TOKEN}" || \
-            { echo "::error::Failed to publish crates using --workspace"; exit 1; }
-          echo "::notice::Successfully published crates for version ${{ needs.create-gh-release.outputs.release_version }}!"
-        shell: bash
+          cargo publish --workspace --locked --token "$CARGO_REGISTRY_TOKEN"

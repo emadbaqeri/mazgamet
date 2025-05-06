@@ -1,0 +1,48 @@
+version: 2
+updates:
+  # 1. GitHub Actions Dependency Updates
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "daily" # Check for GitHub Actions updates daily
+    auto_merge: true # Auto-merge low-risk updates
+    labels:
+      - "dependencies"
+    assignees:
+      - your-github-username # Optional: Assign PRs to a maintainer
+
+  # 2. Rust Crate Dependencies (Cargo.toml/Cargo.lock)
+  - package-ecosystem: "cargo"
+    directory: "/"
+    schedule:
+      interval: "weekly" # Weekly crate updates
+    target-branch: "main" # Update dependencies in the main branch
+    versioning-strategy: "increase-if-necessary" # Preserve version constraints
+    groups:
+      # Critical crates requiring manual review
+      - group: "critical-crates"
+        patterns:
+          - "tokio"
+          - "serde"
+          - "openssl"
+      # Development dependencies (auto-merge safe updates)
+      - group: "dev-deps"
+        patterns:
+          - "clap"
+          - "anyhow"
+          - "tracing"
+    auto_merge: false # Require manual review for all crate updates
+    labels:
+      - "security"
+      - "rust"
+    commit-message:
+      prefix: "chore(deps)"
+    pull-request-merge-body:
+      prefix: "Bumps Rust dependencies to resolve security advisories or improve compatibility."
+
+  # 3. Docker Image Updates (if you use containers)
+  - package-ecosystem: "docker"
+    directory: "/docker"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5 # Limit concurrent PRs

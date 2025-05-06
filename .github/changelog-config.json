@@ -1,88 +1,60 @@
 {
+  "template": "# What's Changed\n\n${{CHANGELOG}}\n\n**Full Changelog**: ${{RELEASE_DIFF}}\n",
+  "pr_template": "- ${{TITLE}} (#${{NUMBER}})",
   "categories": [
     {
       "title": "## 🚀 Features",
-      "labels": ["feature", "enhancement"]
+      "labels": ["feature", "enhancement", "feat"]
     },
     {
-      "title": "## 🐛 Fixes",
+      "title": "## 🐛 Bug Fixes",
       "labels": ["fix", "bug"]
     },
     {
       "title": "## 📚 Documentation",
-      "labels": ["documentation"]
-    },
-    {
-      "title": "## 🧪 Tests",
-      "labels": ["test"]
+      "labels": ["documentation", "docs"]
     },
     {
       "title": "## 🧰 Maintenance",
       "labels": ["chore", "dependencies"]
-    },
-    {
-      "title": "## 💥 Breaking Changes",
-      "labels": ["breaking"]
     }
   ],
-  "template": "${{CHANGELOG}}",
-  "pr_template": "- ${{TITLE}} (#${{NUMBER}})",
-  "empty_template": "No changes",
   "label_extractor": [
     {
-      "pattern": "^feat:\\s.+",
+      "pattern": "^feat(\\([\\w\\s-]+\\))?:",
       "target": "feature"
     },
     {
-      "pattern": "^fix:\\s.+",
-      "target": "fix"
+      "pattern": "^fix(\\([\\w\\s-]+\\))?:",
+      "target": "bug"
     },
     {
-      "pattern": "^docs:\\s.+",
+      "pattern": "^docs(\\([\\w\\s-]+\\))?:",
       "target": "documentation"
     },
     {
-      "pattern": "^test:\\s.+",
-      "target": "test"
-    },
-    {
-      "pattern": "^chore:\\s.+",
+      "pattern": "^chore(\\([\\w\\s-]+\\))?:",
       "target": "chore"
-    },
-    {
-      "pattern": "^break:\\s.+",
-      "target": "breaking"
     }
   ],
+  "duplicate_filter": {
+    "pattern": "^(?:(?:feat|fix|docs|chore|build|test|ci|perf|refactor|revert)(?:\\([\\w\\s-]+\\))?:)\\s(.+)",
+    "on_property": "title",
+    "use_unique_property": "body"
+  },
   "transformers": [
     {
-      "pattern": "^([A-Z]+)\\-\\d+\\s.+$",
-      "target": "[$1-$2] $3"
+      "pattern": "^(?:feat|fix|docs|chore|build|test|ci|perf|refactor|revert)(\\([\\w\\s-]+\\))?:\\s(.+)",
+      "target": "[$1] $2"
     }
+  ],
+  "ignore_labels": [
+    "duplicate",
+    "wontfix",
+    "invalid"
   ],
   "sort": {
     "order": "ASC",
     "on_property": "mergedAt"
-  },
-  "max_tags_to_fetch": 200,
-  "max_pull_requests": 200,
-  "max_back_track_time_days": 365,
-  "ignore_pre_releases": true,
-  "filter_regex_title": "(?:^.[^)]*)\\):",
-  "filter_regex_exclude": "",
-  "reference": {
-    "current": "current/head",
-    "target": "target/base"
-  },
-  "base_branches": ["main", "master"],
-  "max_commits_count": 100,
-  "tag_resolver": {
-    "method": "semver",
-    "filter": "^v"
-  },
-  "duplicate_filter": {
-    "pattern": "(?:.*)?\\s\\((?:#\\d+(?:, )?)+\\)",
-    "on_property": "title",
-    "method": "match"
   }
 }
