@@ -52,7 +52,7 @@ jobs:
           # fromTag: # Optional: specify start tag
           # toTag: # Optional: specify end tag (defaults to latest)
         env:
-          MY_GITHUB_TOKEN: ${{ secrets.MY_GITHUB_TOKEN }} # Action uses this implicitly
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} # Action uses this implicitly
 
       - name: Display Generated Changelog
         if: steps.check_tags.outputs.tags_exist == 'true'
