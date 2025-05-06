@@ -59,7 +59,7 @@ jobs:
         # Use v6 which is the latest major version
         uses: peter-evans/create-pull-request@v6
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
+          token: ${{ secrets.MY_GITHUB_TOKEN }}
           commit-message: "chore: update dependencies"
           title: "chore(deps): update Rust dependencies"
           body: |

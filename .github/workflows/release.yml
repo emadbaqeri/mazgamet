@@ -50,7 +50,7 @@ jobs:
 
       - name: Create draft release
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          MY_GITHUB_TOKEN: ${{ secrets.MY_GITHUB_TOKEN }}
         run: |
           gh release create $VERSION --draft --verify-tag --title $VERSION
 
@@ -187,7 +187,7 @@ jobs:
 
       - name: Upload release asset
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          MY_GITHUB_TOKEN: ${{ secrets.MY_GITHUB_TOKEN }}
         run: |
           gh release upload ${{ needs.create-release.outputs.version }} $ASSET
 
@@ -237,7 +237,7 @@ jobs:
 
       - name: Upload Debian package
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          MY_GITHUB_TOKEN: ${{ secrets.MY_GITHUB_TOKEN }}
         run: |
           gh release upload ${{ needs.create-release.outputs.version }} "$DEB_DIR/$DEB_NAME"
 
