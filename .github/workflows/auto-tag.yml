@@ -122,7 +122,7 @@ jobs:
             echo "::error::Invalid increment type: '$INCREMENT'. Must be 'patch', 'minor', or 'major'."
             exit 1
           fi
-          
+
           # Check semver-tool command structure and adapt accordingly
           if semver-tool --help | grep -q "USAGE:.*semver-tool \[SUBCOMMAND\]"; then
             # New style semver-tool
@@ -161,7 +161,7 @@ jobs:
               esac
             fi
           fi
-          
+
           if [ -z "$NEW_VERSION" ]; then
             echo "::error::Failed to bump version '$LATEST_VERSION_NUM' with increment '$INCREMENT'"
             exit 1
@@ -190,7 +190,7 @@ jobs:
         run: |
           set -euo pipefail
           NEW_VERSION="${{ steps.new_version.outputs.new_version }}"
-          
+
           # Install cargo-edit if not available
           if ! command -v cargo-set-version >/dev/null 2>&1; then
             echo "Installing cargo-edit..."
@@ -203,7 +203,7 @@ jobs:
           else
             CARGO_EDIT_INSTALLED=true
           fi
-          
+
           # Use cargo-edit (if available) or sed to update versions
           if [ "$CARGO_EDIT_INSTALLED" = "true" ]; then
             echo "Attempting to set version using cargo set-version..."
@@ -217,7 +217,7 @@ jobs:
           else
             CARGO_EDIT_FAILED=true
           fi
-          
+
           # Fallback/alternative: Manual find and sed (handle workspace.package too)
           if [ "${CARGO_EDIT_FAILED:-true}" = "true" ]; then
             echo "Using sed to update versions in Cargo.toml files..."

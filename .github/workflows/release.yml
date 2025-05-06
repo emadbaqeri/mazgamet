@@ -1,26 +1,20 @@
-# file: release.yml
 name: Release
-
 permissions:
-  contents: write # Needed for GitHub Release creation/update & potential commit (though commit removed)
-  id-token: write # Needed for potential future trusted publishing to crates.io
-
+  contents: write
+  id-token: write
 on:
   push:
     tags:
-      - "v[0-9]+.[0-9]+.[0-9]+*" # Trigger on semantic version tags
+      - "v[0-9]+.[0-9]+.[0-9]+*"
   workflow_dispatch:
     inputs:
       tag:
         description: "Git tag to release (e.g., v0.1.0)"
         required: true
         type: string
-
-# Prevent multiple releases for the same tag
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: false # Don't cancel releases once started
-
+  cancel-in-progress: false
 jobs:
   create-gh-release:
     name: Create GitHub Release
@@ -28,11 +22,10 @@ jobs:
     outputs:
       release_tag: ${{ steps.vars.outputs.tag }}
       release_version: ${{ steps.vars.outputs.version }}
+      changelog_content: ${{ steps.changelog_builder.outputs.changelog }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-        # No fetch-depth needed unless generating notes from commits here
-
       - name: Set release version variables
         id: vars
         run: |
@@ -41,7 +34,6 @@ jobs:
             TAG_NAME="${GITHUB_REF#refs/tags/}"
           else
             TAG_NAME="${{ github.event.inputs.tag }}"
-            # Optional: Add 'v' prefix if input doesn't have it
             if [[ ! "$TAG_NAME" =~ ^v ]]; then
               TAG_NAME="v$TAG_NAME"
             fi
@@ -51,91 +43,77 @@ jobs:
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "::notice::Preparing release for tag: $TAG_NAME (Version: $VERSION)"
         shell: bash
-
+      - name: Generate Changelog Content using Builder Action
+        id: changelog_builder
+        uses: mikepenz/release-changelog-builder-action@v4
+        with:
+          configuration: ".github/changelog-config.json"
+          ignorePreReleases: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - name: Create GitHub Release
-        # Use v2 which is the current major version
         uses: softprops/action-gh-release@v2
         with:
-          # Use the determined tag name
           tag_name: ${{ steps.vars.outputs.tag }}
           name: Release ${{ steps.vars.outputs.tag }}
-          # Let GitHub generate notes based on PRs merged since last release
-          # Remove 'body' if using this. If you prefer manual notes from
-          # CHANGELOG.md, set generate_release_notes to false and provide 'body'.
-          generate_release_notes: true
-          # body: # Optional: Provide body if generate_release_notes: false
+          body: ${{ steps.changelog_builder.outputs.changelog }}
           draft: false
-          prerelease: false # Set to true if releasing pre-releases
+          prerelease: false
         env:
-          # GITHUB_TOKEN is implicitly used
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
   publish-crates:
     name: Publish to crates.io
     runs-on: ubuntu-latest
-    needs: create-gh-release # Run after release is created
-    # Only run if CRATES_IO_TOKEN is set
+    needs: create-gh-release
+    # Fix: Use a proper if condition to check for token availability at runtime
     steps:
-      - name: Check if CRATES_IO_TOKEN is set
-        run: |
-          if [ -z "${{ secrets.CRATES_IO_TOKEN }}" ]; then
-            echo "::error::CRATES_IO_TOKEN is not set. Skipping publish step."
-            exit 1
-          fi
       - name: Checkout code
         uses: actions/checkout@v4
         with:
-          # Checkout the specific tag being released
           ref: ${{ needs.create-gh-release.outputs.release_tag }}
-
       - name: Install Rust stable toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: "1.86.0"
-
       - name: Setup Rust cache
         uses: Swatinem/rust-cache@v2
-
+      - name: Install jq
+        run: sudo apt-get update && sudo apt-get install -y jq
       - name: Verify crate versions match tag
         run: |
           set -euo pipefail
           EXPECTED_VERSION="${{ needs.create-gh-release.outputs.release_version }}"
           echo "::notice::Verifying crate versions match tag version: $EXPECTED_VERSION"
-          # Use cargo metadata to reliably get workspace member versions
           cargo metadata --format-version 1 --no-deps | jq -r --arg VERSION "$EXPECTED_VERSION" '
             .packages[] |
-            select(.publish != false) | # Only check publishable crates
+            select(.publish != false) |
             select(.version != $VERSION) |
             "Error: Crate \(.name) version \(.version) does not match expected release version \($VERSION)"
-          ' > version_errors.txt || true # Ignore jq errors if parsing fails
-
+          ' > version_errors.txt || true
           if [ -s version_errors.txt ]; then
             cat version_errors.txt
-            # Exit with error if mismatches found
             exit 1
           else
             echo "::notice::All publishable crate versions match $EXPECTED_VERSION."
           fi
         shell: bash
-
+      - name: Check if CRATES_IO_TOKEN exists
+        id: check_token
+        run: |
+          if [ -n "${{ secrets.CRATES_IO_TOKEN }}" ]; then
+            echo "has_token=true" >> $GITHUB_OUTPUT
+          else
+            echo "has_token=false" >> $GITHUB_OUTPUT
+            echo "::warning::CRATES_IO_TOKEN is not set. Skipping crate publishing."
+          fi
+        shell: bash
       - name: Publish crates to crates.io
+        if: steps.check_token.outputs.has_token == 'true'
         env:
-          # Use the token from secrets
           CARGO_REGISTRY_TOKEN: ${{ secrets.CRATES_IO_TOKEN }}
         run: |
           set -euo pipefail
-          # Use --workspace if all crates should be published
-          # Use --locked to ensure Cargo.lock is up-to-date and used
-          # Remove --allow-dirty - the workspace must be clean for a release
-          # Add explicit --token argument
           cargo publish --workspace --locked --token "${CARGO_REGISTRY_TOKEN}" || \
             { echo "::error::Failed to publish crates using --workspace"; exit 1; }
-
-          # If specific order is needed (e.g., publish lib before bin):
-          # cd path/to/lib && cargo publish --locked --token "${CARGO_REGISTRY_TOKEN}" || exit 1
-          # echo "::notice::Waiting a bit for registry index..."
-          # sleep 60 # Use a longer, but still potentially unreliable sleep if needed
-          # cd path/to/bin && cargo publish --locked --token "${CARGO_REGISTRY_TOKEN}" || exit 1
-
           echo "::notice::Successfully published crates for version ${{ needs.create-gh-release.outputs.release_version }}!"
         shell: bash
