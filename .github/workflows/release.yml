@@ -43,7 +43,7 @@ jobs:
 
       - name: Validate Cargo.toml version
         run: |
-          if ! grep -q "\"version\" *= *\"$VERSION\"" Cargo.toml; then
+          if ! grep -q "version *= *\"$VERSION\"" Cargo.toml; then
             echo "Error: Cargo.toml version does not match tag version" >&2
             exit 1
           fi
@@ -67,13 +67,11 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # Linux static builds
           - build: linux-amd64
             os: ubuntu-latest
             rust: nightly
             target: x86_64-unknown-linux-musl
             strip: x86_64-linux-musl-strip
-          # Linux cross builds
           - build: linux-i386
             os: ubuntu-latest
             rust: stable
@@ -86,12 +84,10 @@ jobs:
             target: armv7-unknown-linux-gnueabihf
             strip: arm-linux-gnueabihf-strip
             qemu: qemu-arm
-          # Darwin builds
           - build: macos-amd64
             os: macos-latest
             rust: nightly
             target: x86_64-apple-darwin
-          # Windows builds
           - build: windows-amd64
             os: windows-latest
             rust: nightly
@@ -108,7 +104,7 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y libssl-dev
 
       - name: Setup Rust toolchain
-        uses: dtolnay/rust-toolchain@master
+        uses: dtolnay/rust-toolchain@v1
         with:
           toolchain: ${{ matrix.rust }}
           target: ${{ matrix.target }}
@@ -132,9 +128,9 @@ jobs:
         run: |
           $CARGO build --release --features pcre2 $TARGET_FLAGS
           if [ "$RUNNER_OS" == "Windows" ]; then
-            BIN=target/${{ matrix.target }}/release/my-app.exe
+            BIN=target/${{ matrix.target }}/release/mazgamet.exe
           else
-            BIN=target/${{ matrix.target }}/release/my-app
+            BIN=target/${{ matrix.target }}/release/mazgamet
           fi
           echo "BIN=$BIN" >> $GITHUB_ENV
 
@@ -151,7 +147,7 @@ jobs:
 
       - name: Generate archive name
         run: |
-          echo "ARCHIVE=my-app-${{ needs.create-release.outputs.version }}-${{ matrix.target }}" >> $GITHUB_ENV
+          echo "ARCHIVE=mazgamet-${{ needs.create-release.outputs.version }}-${{ matrix.target }}" >> $GITHUB_ENV
 
       - name: Create archive structure
         run: |
@@ -162,16 +158,16 @@ jobs:
       - name: Generate documentation (native)
         if: matrix.qemu == ''
         run: |
-          "$BIN" --generate man > "$ARCHIVE/doc/my-app.1"
-          "$BIN" --generate complete-bash > "$ARCHIVE/complete/my-app.bash"
-          "$BIN" --generate complete-fish > "$ARCHIVE/complete/my-app.fish"
+          "$BIN" --generate man > "$ARCHIVE/doc/mazgamet.1"
+          "$BIN" --generate complete-bash > "$ARCHIVE/complete/mazgamet.bash"
+          "$BIN" --generate complete-fish > "$ARCHIVE/complete/mazgamet.fish"
 
       - name: Generate documentation (emulated)
         if: matrix.qemu != ''
         run: |
           docker run --rm -v "$PWD/target:/target:Z" \
             "ghcr.io/cross-rs/${{ matrix.target }}:main" \
-            "${{ matrix.qemu }}" "/$BIN" --generate man > "$ARCHIVE/doc/my-app.1"
+            "${{ matrix.qemu }}" "/$BIN" --generate man > "$ARCHIVE/doc/mazgamet.1"
 
       - name: Create archive
         run: |
@@ -209,7 +205,7 @@ jobs:
           sudo apt-get install -y libssl-dev
 
       - name: Setup Rust
-        uses: dtolnay/rust-toolchain@master
+        uses: dtolnay/rust-toolchain@v1
         with:
           toolchain: nightly
           target: ${{ env.TARGET }}
@@ -220,20 +216,20 @@ jobs:
       - name: Build debug binary
         run: |
           cargo build --target $TARGET
-          BIN=target/${{ env.TARGET }}/debug/my-app
+          BIN=target/${{ env.TARGET }}/debug/mazgamet
           echo "BIN=$BIN" >> $GITHUB_ENV
 
       - name: Generate documentation
         run: |
           mkdir -p deployment/deb
-          "$BIN" --generate man > deployment/deb/my-app.1
+          "$BIN" --generate man > deployment/deb/mazgamet.1
 
       - name: Build Debian package
         run: |
           cargo deb --target $TARGET
           VERSION=${{ needs.create-release.outputs.version }}
           DEB_DIR=target/${{ env.TARGET }}/debian
-          echo "DEB_NAME=my-app_$VERSION-1_amd64.deb" >> $GITHUB_ENV
+          echo "DEB_NAME=mazgamet_$VERSION-1_amd64.deb" >> $GITHUB_ENV
 
       - name: Upload Debian package
         env:
@@ -252,7 +248,7 @@ jobs:
           ref: ${{ needs.create-release.outputs.version }}
 
       - name: Setup Rust
-        uses: dtolnay/rust-toolchain@master
+        uses: dtolnay/rust-toolchain@v1
         with:
           toolchain: stable
 

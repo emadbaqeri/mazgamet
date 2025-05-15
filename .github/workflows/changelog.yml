@@ -2,13 +2,11 @@
 name: Generate Changelog Notes
 
 permissions:
-  contents: read # Needed to checkout code and read commit history
+  contents: read
 
 on:
-  workflow_dispatch: # Can be run manually if needed
-  # Removed push trigger - let release workflow handle notes
+  workflow_dispatch:
 
-# Cancel redundant runs
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -17,15 +15,15 @@ jobs:
   generate-changelog-notes:
     name: Generate Release Notes Content
     runs-on: ubuntu-latest
+    continue-on-error: false
     outputs:
       changelog_content: ${{ steps.changelog_builder.outputs.changelog }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0 # Required for commit history
+          fetch-depth: 0
 
-      # Optional: Check if tags exist; action might handle this gracefully
       - name: Check for tags
         id: check_tags
         run: |
@@ -36,31 +34,19 @@ jobs:
           else
             echo "tags_exist=false" >> $GITHUB_OUTPUT
             echo "::warning::No tags found. Changelog generation might be empty or fail."
-        shell: bash
 
       - name: Generate Changelog Content using Builder Action
         id: changelog_builder
-        # Use v4 which is current
         uses: mikepenz/release-changelog-builder-action@v4
         if: steps.check_tags.outputs.tags_exist == 'true'
         with:
-          # Assumes .github/changelog-config.json exists and is configured
-          # If not, remove this line or use default configuration
           configuration: ".github/changelog-config.json"
           ignorePreReleases: true
-          # Use 'Unreleased' or similar placeholder if needed, or let it compare latest tags
-          # fromTag: # Optional: specify start tag
-          # toTag: # Optional: specify end tag (defaults to latest)
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} # Action uses this implicitly
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Display Generated Changelog
         if: steps.check_tags.outputs.tags_exist == 'true'
         run: |
-          set -euo pipefail
           echo "Generated Changelog Content:"
           echo "${{ steps.changelog_builder.outputs.changelog }}"
-        shell: bash
-
-      # Instead of committing, this job now focuses on generating the content.
-      # The release workflow can trigger this workflow or use the action directly.

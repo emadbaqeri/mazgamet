@@ -1,11 +1,11 @@
 name: Security Audit & Auto-Patch
 permissions:
-  contents: write # Required to commit changes
+  contents: write
   security-events: write
 
 on:
   schedule:
-    - cron: "0 0 * * *" # Daily scan
+    - cron: "0 0 * * *"
   push:
     branches: [main]
     paths:
@@ -24,56 +24,44 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-        with:
-          ref: ${{ github.head_ref || github.ref }}
 
       - name: Setup Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@v1
         with:
-          toolchain: "nightly"
+          toolchain: nightly
 
-      - name: Cache cargo dependencies
-        uses: actions/cache@v3
-        with:
-          path: |
-            ~/.cargo/bin/
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-            target/
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: ${{ runner.os }}-cargo-
+      - name: Setup Rust cache
+        uses: Swatinem/rust-cache@v2
 
       - name: Install cargo-audit and cargo-edit
         run: |
-          cargo install cargo-audit --locked
-          cargo install cargo-edit --locked
+          if ! command -v cargo-audit >/dev/null 2>&1; then
+            cargo install cargo-audit --locked
+          fi
+          if ! command -v cargo-add >/dev/null 2>&1; then
+            cargo install cargo-edit --locked
+          fi
 
       - name: Run initial cargo audit
         id: initial-audit
         run: |
           echo "Running initial security audit..."
-          cargo audit --json > audit-report.json || {
+          if ! cargo audit --json > audit-report.json; then
             echo "Vulnerabilities detected. Proceeding to patch dependencies."
             echo "has_vulnerabilities=true" >> $GITHUB_OUTPUT
-          }
+          fi
 
       - name: Patch dependencies
         if: steps.initial-audit.outputs.has_vulnerabilities == 'true'
         run: |
           echo "Parsing audit report for vulnerable packages..."
-          # Extract vulnerable crates and update them
           jq -r '.vulnerabilities.packages[] | "cargo add \(.name)@$(echo \(.patched_versions) | jq -r .[0])"' audit-report.json | sh
-
-          echo "Updating Cargo.lock..."
           cargo update
-
           echo "Re-running audit to verify fixes..."
-          cargo audit --json > audit-report-fixed.json || {
+          if ! cargo audit --json > audit-report-fixed.json; then
             echo "::error::Failed to resolve all vulnerabilities. Manual intervention required."
             exit 1
-          }
-
+          fi
           echo "All vulnerabilities resolved successfully."
 
       - name: Commit and push changes
@@ -85,4 +73,4 @@ jobs:
           git config --local user.name "GitHub Action Bot"
           git add Cargo.toml Cargo.lock audit-report*.json
           git commit -m "Auto-patched security vulnerabilities" || echo "No changes to commit"
-          git push origin ${{ github.head_ref || github.ref }}
+          git push

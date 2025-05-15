@@ -1,48 +1,77 @@
 version: 2
 updates:
-  # 1. GitHub Actions Dependency Updates
+  # GitHub Actions dependencies
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
-      interval: "daily" # Check for GitHub Actions updates daily
-    auto_merge: true # Auto-merge low-risk updates
+      interval: "daily"
+      time: "06:00"
+    open-pull-requests-limit: 5
+    auto-merge: true
     labels:
       - "dependencies"
-    assignees:
-      - your-github-username # Optional: Assign PRs to a maintainer
+      - "github-actions"
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+    commit-message:
+      prefix: "chore(actions)"
+      include: "scope"
+    pull-request-branch-name:
+      separator: "-"
+    rebase-strategy: "auto"
 
-  # 2. Rust Crate Dependencies (Cargo.toml/Cargo.lock)
+  # Rust dependencies
   - package-ecosystem: "cargo"
     directory: "/"
     schedule:
-      interval: "weekly" # Weekly crate updates
-    target-branch: "main" # Update dependencies in the main branch
-    versioning-strategy: "increase-if-necessary" # Preserve version constraints
+      interval: "weekly"
+      day: "sunday"
+      time: "06:00"
+    target-branch: "main"
+    versioning-strategy: "increase-if-necessary"
+    open-pull-requests-limit: 10
+    labels:
+      - "dependencies"
+      - "rust"
     groups:
-      # Critical crates requiring manual review
-      - group: "critical-crates"
+      critical-crates:
         patterns:
           - "tokio"
           - "serde"
           - "openssl"
-      # Development dependencies (auto-merge safe updates)
-      - group: "dev-deps"
+      dev-deps:
         patterns:
           - "clap"
           - "anyhow"
           - "tracing"
-    auto_merge: false # Require manual review for all crate updates
-    labels:
-      - "security"
-      - "rust"
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
     commit-message:
       prefix: "chore(deps)"
-    pull-request-merge-body:
-      prefix: "Bumps Rust dependencies to resolve security advisories or improve compatibility."
+      include: "scope"
+    pull-request-branch-name:
+      separator: "-"
+    rebase-strategy: "auto"
 
-  # 3. Docker Image Updates (if you use containers)
+  # Docker dependencies
   - package-ecosystem: "docker"
     directory: "/docker"
     schedule:
       interval: "weekly"
-    open-pull-requests-limit: 5 # Limit concurrent PRs
+      day: "sunday"
+      time: "06:00"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "docker"
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+    commit-message:
+      prefix: "chore(docker)"
+      include: "scope"
+    pull-request-branch-name:
+      separator: "-"
+    rebase-strategy: "auto"
