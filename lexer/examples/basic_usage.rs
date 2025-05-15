@@ -12,6 +12,8 @@ fn main() {
             x + y;
         };
         let result = add(five, ten);
+        !1/*5;
+        5 < 10 > 5;
     "#;
 
     // Create a new lexer instance with the input

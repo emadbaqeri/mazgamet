@@ -8,6 +8,13 @@ pub enum TokenType {
 
     Assign,
     Plus,
+    Minus,
+    Bang,
+    Asterisk,
+    Slash,
+
+    LT,
+    GT,
 
     Comma,
     Semicolon,
@@ -19,6 +26,14 @@ pub enum TokenType {
 
     Function,
     Let,
+    True,
+    False,
+    IF,
+    ELSE,
+    Return,
+
+    EQ,
+    NotEQ,
 }
 
 impl TokenType {
@@ -26,6 +41,13 @@ impl TokenType {
         match ident {
             "fn" => TokenType::Function,
             "let" => TokenType::Let,
+            "true" => TokenType::True,
+            "false" => TokenType::False,
+            "if" => TokenType::IF,
+            "else" => TokenType::ELSE,
+            "return" => TokenType::Return,
+            "==" => TokenType::EQ,
+            "!=" => TokenType::NotEQ,
             _ => TokenType::Identifier,
         }
     }

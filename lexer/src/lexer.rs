@@ -53,9 +53,26 @@ impl<'a> Lexer<'a> {
         );
         let token = match self.ch {
             Some(b'=') => {
-                debug!("Found ASSIGN token");
-                self.read_char();
-                Token::new_char(TokenType::Assign, '=')
+                debug!("Found ASSIGN or EQ token");
+                if let Some('=') = self.peek_char() {
+                    self.read_char();
+                    self.read_char();
+                    Token::new(TokenType::EQ, "==".to_string())
+                } else {
+                    self.read_char();
+                    Token::new_char(TokenType::Assign, '=')
+                }
+            }
+            Some(b'!') => {
+                debug!("Found BANG or NotEQ token");
+                if let Some('=') = self.peek_char() {
+                    self.read_char();
+                    self.read_char();
+                    Token::new(TokenType::NotEQ, "!=".to_string())
+                } else {
+                    self.read_char();
+                    Token::new_char(TokenType::Bang, '!')
+                }
             }
             Some(b';') => {
                 debug!("Found SEMICOLON token");
@@ -82,6 +99,31 @@ impl<'a> Lexer<'a> {
                 self.read_char();
                 Token::new_char(TokenType::Plus, '+')
             }
+            Some(b'-') => {
+                debug!("Found MINUS token");
+                self.read_char();
+                Token::new_char(TokenType::Minus, '-')
+            }
+            Some(b'/') => {
+                debug!("Found SLASH token");
+                self.read_char();
+                Token::new_char(TokenType::Slash, '/')
+            }
+            Some(b'*') => {
+                debug!("Found ASTERISK token");
+                self.read_char();
+                Token::new_char(TokenType::Asterisk, '*')
+            }
+            Some(b'<') => {
+                debug!("Found LT token");
+                self.read_char();
+                Token::new_char(TokenType::LT, '<')
+            }
+            Some(b'>') => {
+                debug!("Found GT token");
+                self.read_char();
+                Token::new_char(TokenType::GT, '>')
+            }
             Some(b'{') => {
                 debug!("Found LEFT_BRACE token");
                 self.read_char();
@@ -91,10 +133,6 @@ impl<'a> Lexer<'a> {
                 debug!("Found RIGHT_BRACE token");
                 self.read_char();
                 Token::new_char(TokenType::RightBrace, '}')
-            }
-            None => {
-                debug!("Found EOF token");
-                Token::new(TokenType::EOF, "".to_string())
             }
             Some(ch) => {
                 if Self::is_letter(ch) {
@@ -115,6 +153,10 @@ impl<'a> Lexer<'a> {
                     let ch_as_char = ch as char;
                     Token::new_char(TokenType::Illegal, ch_as_char)
                 }
+            }
+            None => {
+                debug!("Found EOF token");
+                Token::new(TokenType::EOF, "".to_string())
             }
         };
         debug!(
@@ -192,6 +234,19 @@ impl<'a> Lexer<'a> {
         trace!("Number read: {}, new position: {}", result, self.position);
         result
     }
+
+    fn peek_char(&self) -> Option<char> {
+        if self.read_position >= self.input.len() {
+            None
+        } else {
+            // Try to decode the next char from the byte slice
+            let slice = &self.input[self.read_position..];
+            match std::str::from_utf8(slice) {
+                Ok(s) => s.chars().next(),
+                Err(_) => None,
+            }
+        }
+    }
 }
 
 #[cfg(test)]
@@ -210,6 +265,15 @@ let add = fn(x, y) {
 x + y;
 };
 let result = add(five, ten);
+!-/*5;
+5 < 10 > 5;
+if (5 < 10) {
+    return true;
+} else {
+    return false;
+}
+10 == 10;
+10 != 9;
 "#;
 
         let tests = vec![
@@ -248,6 +312,43 @@ let result = add(five, ten);
             (TokenType::Comma, ","),
             (TokenType::Identifier, "ten"),
             (TokenType::RightParen, ")"),
+            (TokenType::Semicolon, ";"),
+            (TokenType::Bang, "!"),
+            (TokenType::Minus, "-"),
+            (TokenType::Slash, "/"),
+            (TokenType::Asterisk, "*"),
+            (TokenType::Integer, "5"),
+            (TokenType::Semicolon, ";"),
+            (TokenType::Integer, "5"),
+            (TokenType::LT, "<"),
+            (TokenType::Integer, "10"),
+            (TokenType::GT, ">"),
+            (TokenType::Integer, "5"),
+            (TokenType::Semicolon, ";"),
+            (TokenType::IF, "if"),
+            (TokenType::LeftParen, "("),
+            (TokenType::Integer, "5"),
+            (TokenType::LT, "<"),
+            (TokenType::Integer, "10"),
+            (TokenType::RightParen, ")"),
+            (TokenType::LeftBrace, "{"),
+            (TokenType::Return, "return"),
+            (TokenType::True, "true"),
+            (TokenType::Semicolon, ";"),
+            (TokenType::RightBrace, "}"),
+            (TokenType::ELSE, "else"),
+            (TokenType::LeftBrace, "{"),
+            (TokenType::Return, "return"),
+            (TokenType::False, "false"),
+            (TokenType::Semicolon, ";"),
+            (TokenType::RightBrace, "}"),
+            (TokenType::Integer, "10"),
+            (TokenType::EQ, "=="),
+            (TokenType::Integer, "10"),
+            (TokenType::Semicolon, ";"),
+            (TokenType::Integer, "10"),
+            (TokenType::NotEQ, "!="),
+            (TokenType::Integer, "9"),
             (TokenType::Semicolon, ";"),
             (TokenType::EOF, ""),
         ];
