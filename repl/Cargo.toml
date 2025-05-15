@@ -1,0 +1,16 @@
+[package]
+name = "repl"
+version = "0.0.4"
+edition = "2024"
+license = "MIT"
+authors = ["emadbaqeri <hey@emaaad.com>"]
+description = "A Read-Eval-Print Loop (REPL) for the Mazgamet programming language"
+homepage = "https://github.com/emadbaqeri/mazgamet"
+repository = "https://github.com/emadbaqeri/mazgamet"
+documentation = "https://github.com/emadbaqeri/mazgamet"
+keywords = ["repl", "interactive", "mazgamet", "shell", "cli"]
+categories = ["command-line-utilities", "development-tools::debugging"]
+
+
+[dependencies]
+lexer = { path = "../lexer" }

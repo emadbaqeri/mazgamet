@@ -187,6 +187,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "repl"
+version = "0.0.4"
+dependencies = [
+ "lexer",
+]
+
+[[package]]
 name = "rustversion"
 version = "1.0.20"
 source = "registry+https://github.com/rust-lang/crates.io-index"

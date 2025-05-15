@@ -154,6 +154,7 @@ impl<'a> Lexer<'a> {
                     Token::new_char(TokenType::Illegal, ch_as_char)
                 }
             }
+            #[allow(non_snake_case)]
             None => {
                 debug!("Found EOF token");
                 Token::new(TokenType::EOF, "".to_string())
