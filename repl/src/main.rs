@@ -1,5 +1,5 @@
-use std::io::{self, BufReader, BufWriter};
 use repl::start;
+use std::io::{self, BufReader, BufWriter};
 
 fn main() {
     println!("Hello! This is the Mazgamet programming language!");
