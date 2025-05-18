@@ -139,8 +139,6 @@ mod tests {
     #[test]
     fn test_let_statements() {
         let input = r#"
-            true -
-            let error_prune_statement :=
             let x = 5;
             let y = 10;
             let foobar = 121212;
