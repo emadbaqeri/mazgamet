@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["lexer", "repl"]
+members = ["lexer", "repl", "parser", "ast"]
 
 [workspace.package]
 version = "0.0.5"

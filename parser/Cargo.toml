@@ -1,0 +1,17 @@
+[package]
+name = "parser"
+version = "0.0.5"
+edition = "2021"
+license = "MIT"
+authors = ["emadbaqeri <hey@emaaad.com>"]
+description = "A parser component for the Mazgamet project"
+homepage = "https://github.com/emadbaqeri/mazgamet"
+repository = "https://github.com/emadbaqeri/mazgamet"
+documentation = "https://github.com/emadbaqeri/mazgamet"
+keywords = ["parser", "syntax", "compiler"]
+categories = ["parsing", "parser-implementations", "interpreter"]
+
+
+[dependencies]
+lexer = { path = "../lexer" }
+ast = { path = "../ast" }

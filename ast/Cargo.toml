@@ -1,0 +1,15 @@
+[package]
+name = "ast"
+version = "0.0.5"
+edition = "2021"
+license = "MIT"
+authors = ["emadbaqeri <hey@emaaad.com>"]
+description = "Abstract Syntax Tree (AST) definitions for the Mazgamet language"
+homepage = "https://github.com/emadbaqeri/mazgamet"
+repository = "https://github.com/emadbaqeri/mazgamet"
+documentation = "https://github.com/emadbaqeri/mazgamet"
+keywords = ["ast", "syntax", "compiler", "language", "interpreter"]
+categories = ["compilers", "data-structures", "development-tools"]
+
+[dependencies]
+lexer = { path = "../lexer" }
