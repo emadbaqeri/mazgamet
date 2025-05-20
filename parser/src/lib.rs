@@ -1,13 +1,20 @@
-use ast::{Identifier, LetStatement, Program, ReturnStatement, Statement};
+use std::collections::HashMap;
+
+use ast::{Expression, Identifier, LetStatement, Program, ReturnStatement, Statement};
 use lexer::{Lexer, Token, TokenType};
 
 type Errors = Vec<String>;
+pub type PrefixParseFn = fn(&mut Parser) -> Option<Box<dyn Expression>>;
+pub type InfixParseFn = fn(&mut Parser, Box<dyn Expression>) -> Option<Box<dyn Expression>>;
 
 pub struct Parser<'a> {
     lexer: Lexer<'a>,
     current_token: Token,
     peek_token: Token,
     errors: Errors,
+
+    prefix_parse_fns: HashMap<TokenType, PrefixParseFn>,
+    infix_parse_fns: HashMap<TokenType, InfixParseFn>,
 }
 
 impl<'a> Parser<'a> {
@@ -17,6 +24,9 @@ impl<'a> Parser<'a> {
             current_token: Token::new(TokenType::EOF, String::new()),
             peek_token: Token::new(TokenType::EOF, String::new()),
             errors: Vec::new(),
+
+            prefix_parse_fns: HashMap::new(),
+            infix_parse_fns: HashMap::new(),
         };
 
         // Read two tokens to initialize cur_token and peek_token
@@ -128,6 +138,14 @@ impl<'a> Parser<'a> {
             self.peek_error(&token_type);
             false
         }
+    }
+
+    pub fn register_prefix(&mut self, token_type: TokenType, func: PrefixParseFn) {
+        self.prefix_parse_fns.insert(token_type, func);
+    }
+
+    pub fn register_infix(&mut self, token_type: TokenType, func: InfixParseFn) {
+        self.infix_parse_fns.insert(token_type, func);
     }
 }
 
