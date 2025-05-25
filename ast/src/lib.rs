@@ -11,8 +11,11 @@ pub trait Statement: Node + Any {
     fn as_any(&self) -> &dyn Any;
 }
 
-pub trait Expression: Node {
+// Modified Expression trait
+pub trait Expression: Node + Any {
+    // Added Any
     fn expression_node(&self);
+    fn as_any(&self) -> &dyn Any; // Added this method
 }
 
 pub struct Program {
@@ -42,8 +45,13 @@ pub struct Identifier {
     pub value: String,
 }
 
+// Modified Identifier impl for Expression
 impl Expression for Identifier {
     fn expression_node(&self) {}
+    fn as_any(&self) -> &dyn Any {
+        // Implemented as_any
+        self
+    }
 }
 
 impl Node for Identifier {
@@ -107,7 +115,7 @@ impl Node for ReturnStatement {
     }
 
     fn as_string(&self) -> String {
-        "return ...;".to_string()
+        "return ...;".to_string() // Placeholder, actual implementation might differ
     }
 }
 
@@ -119,9 +127,10 @@ impl Statement for ReturnStatement {
     }
 }
 
+// ExpressionStatement struct (ensure pub fields if accessed directly in parser tests)
 pub struct ExpressionStatement {
-    token: Token,
-    expression: Option<Box<dyn Expression>>,
+    pub token: Token, // The first token of the expression
+    pub expression: Option<Box<dyn Expression>>,
 }
 
 impl Statement for ExpressionStatement {
